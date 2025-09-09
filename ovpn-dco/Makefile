@@ -67,7 +67,7 @@ PKG_EXTMOD_SUBDIRS = drivers/net/ovpn-dco
 
 MAKE_OPTS:= \
 	$(KERNEL_MAKE_FLAGS) \
-	M="$(PKG_BUILD_DIR)/drivers/net/ovpn-dco" \
+	M="$(PKG_BUILD_DIR)" \
 	NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
 	$(EXTRA_KCONFIG)
 

@@ -82,10 +82,12 @@ Index: ovpn-dco-0.2.20241216/drivers/net/ovpn-dco/peer.c
 ===================================================================
 --- ovpn-dco-0.2.20241216.orig/drivers/net/ovpn-dco/peer.c
 +++ ovpn-dco-0.2.20241216/drivers/net/ovpn-dco/peer.c
-@@ -41,6 +41,8 @@ static struct ovpn_peer *ovpn_peer_creat
+@@ -40,7 +40,9 @@ static void ovpn_peer_expire(struct time
+ static struct ovpn_peer *ovpn_peer_create(struct ovpn_struct *ovpn, u32 id)
  {
  	struct ovpn_peer *peer;
- 	int ret;
+-	int ret;
++	int ret = 0;
 +	int i;
 +	unsigned int cpu_num;
  
