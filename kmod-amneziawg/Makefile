@@ -50,24 +50,24 @@ define Build/Prepare
 
 ifneq ($(WG_IN_TREE_DIR),)
 	@echo "[amneziawg] WireGuard is in-tree, copying sources into $(PKG_BUILD_DIR)"
-	$(CP) -v $(WG_IN_TREE_DIR)/*.c $(PKG_BUILD_DIR)/ 2>/dev/null || true
-	$(CP) -v $(WG_IN_TREE_DIR)/*.h $(PKG_BUILD_DIR)/ 2>/dev/null || true
-	mkdir -p $(PKG_BUILD_DIR)/selftest $(PKG_BUILD_DIR)/uapi
-	$(CP) -rv $(WG_IN_TREE_DIR)/selftest $(PKG_BUILD_DIR)/ 2>/dev/null || true
-	$(CP) -v $(WG_IN_TREE_DIR)/uapi/linux/wireguard.h $(PKG_BUILD_DIR)/uapi/ 2>/dev/null || true
+	$(CP) -v $(LINUX_DIR)/drivers/net/wireguard/{*.c,*.h,selftest/} $(PKG_BUILD_DIR)
+	mkdir -p $(PKG_BUILD_DIR)/uapi
+	$(CP) -rv $(WG_IN_TREE_DIR)/selftest $(PKG_BUILD_DIR)/ 2>/dev/null
+	$(CP) -v $(LINUX_DIR)/include/uapi/linux/wireguard.h $(PKG_BUILD_DIR)/uapi/wireguard.h 2>/dev/null || true
 
-	# --- quilt patching for in-tree ---
-	mkdir -p $(PKG_BUILD_DIR)/patches/common_patches
-	mkdir -p $(PKG_BUILD_DIR)/patches/board_spec
-
-	- cp -rvf $(CURDIR)/patches/common_patches/*.patch $(PKG_BUILD_DIR)/patches/common_patches/ 2>/dev/null
-	- cp -rvf $(CURDIR)/patches/board_spec/$(BOARD)/$(SUBTARGET)/patches/*.patch $(PKG_BUILD_DIR)/patches/board_spec/ 2>/dev/null
-
-	- sh -c 'cd "$(PKG_BUILD_DIR)" && find patches -name "*.patch" | xargs -n1 basename | sort -V > patches/series'
-	@echo "[amneziawg] In-tree patch series generated (if any):"
-	- @cat $(PKG_BUILD_DIR)/patches/series
-	- sh -c 'cd "$(PKG_BUILD_DIR)" && [ -s patches/series ] && QUILT_PATCHES=patches quilt push -a'
-
+	# --- Apply patches directly for in-tree ---
+	@echo "[amneziawg] Applying patches for in-tree build"
+	- if [ -d "$(CURDIR)/common_patches" ]; then \
+		for patch in $(CURDIR)/common_patches/*.patch; do \
+			[ -f "$$$$patch" ] && echo "Applying $$$$patch" && patch -d $(PKG_BUILD_DIR) -F3 -t -p0 < "$$$$patch" || true; \
+		done; \
+	fi
+	- if [ -d "$(CURDIR)/board_spec/$(BOARD)/$(SUBTARGET)/patches" ]; then \
+		for patch in $(CURDIR)/board_spec/$(BOARD)/$(SUBTARGET)/patches/*.patch; do \
+			[ -f "$$$$patch" ] && echo "Applying $$$$patch" && patch -d $(PKG_BUILD_DIR) -F3 -t -p0 < "$$$$patch" || true; \
+		done; \
+	fi
+	$(CP) -v $(CURDIR)/src/Makefile $(PKG_BUILD_DIR)
 else
 	@echo "[amneziawg] Using out-of-tree source v$(PKG_VERSION)"
 
