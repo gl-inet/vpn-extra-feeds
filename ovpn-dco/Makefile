@@ -36,7 +36,7 @@ define AddDpends/vpn-crypto-acceleration
   DEPENDS+=+kmod-crypto-aead +kmod-crypto-gcm +kmod-crypto-chacha20poly1305
   KCONFIG+=CONFIG_CRYPTO_CHACHA20=y \
 	CONFIG_CRYPTO_POLY1305=y \
-	CRYPTO_LIB_CHACHA=y
+	CONFIG_CRYPTO_LIB_CHACHA=y
   $(if $(LINUX_KARCH),$(call AddDpends/vpn-crypto-acceleration/$(LINUX_KARCH)),)
 endef
 
