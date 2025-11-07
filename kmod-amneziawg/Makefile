@@ -62,10 +62,14 @@ ifneq ($(WG_IN_TREE_DIR),)
 			[ -f "$$$$patch" ] && echo "Applying $$$$patch" && patch -d $(PKG_BUILD_DIR) -F3 -t -p0 < "$$$$patch" || true; \
 		done; \
 	fi
-	- if [ -d "$(CURDIR)/board_spec/$(BOARD)/$(SUBTARGET)/patches" ]; then \
+	if [ -d "$(CURDIR)/board_spec/$(BOARD)/$(SUBTARGET)/patches" ]; then \
 		for patch in $(CURDIR)/board_spec/$(BOARD)/$(SUBTARGET)/patches/*.patch; do \
 			[ -f "$$$$patch" ] && echo "Applying $$$$patch" && patch -d $(PKG_BUILD_DIR) -F3 -t -p0 < "$$$$patch" || true; \
 		done; \
+	else \
+		echo "[amneziawg-InTree] ERROR: No board-specific patches found for $(BOARD)/$(SUBTARGET) in-tree build!"; \
+		exit 1; \
+	fi
 	fi
 	$(CP) -v $(CURDIR)/src/Makefile $(PKG_BUILD_DIR)
 else
