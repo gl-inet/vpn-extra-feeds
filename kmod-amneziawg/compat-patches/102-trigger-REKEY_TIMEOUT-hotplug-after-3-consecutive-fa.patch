@@ -49,12 +49,12 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/timers.c
  			mod_peer_timer(peer, &peer->timer_zero_key_material,
  				       jiffies + REJECT_AFTER_TIME * 3 * HZ);
  
--			wireguard_hotplug(peer->device->dev->name, REKEY_GIVEUP_EVENT);
+-			wireguard_hotplug(peer->device->dev->name, REKEY_GIVEUP_EVENT, peer->handshake.remote_static);
 +		is_retry_count_wg++;
 +		if(is_retry_count_wg > 3)
 +		{
 +			is_retry_count_wg = 0;
-+			wireguard_hotplug(peer->device->dev->name, REKEY_TIMEOUT_EVENT);
++			wireguard_hotplug(peer->device->dev->name, REKEY_TIMEOUT_EVENT, peer->handshake.remote_static);
 +		}
 +
  	} else {
