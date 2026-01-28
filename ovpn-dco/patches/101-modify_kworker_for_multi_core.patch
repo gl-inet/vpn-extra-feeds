@@ -93,7 +93,13 @@ Index: ovpn-dco-0.2.20241216/drivers/net/ovpn-dco/peer.c
  
  	/* alloc and init peer object */
  	peer = kzalloc(sizeof(*peer), GFP_KERNEL);
-@@ -61,8 +63,18 @@ static struct ovpn_peer *ovpn_peer_creat
+@@ -57,12 +59,24 @@ static struct ovpn_peer *ovpn_peer_creat
+ 	RCU_INIT_POINTER(peer->bind, NULL);
+ 	ovpn_crypto_state_init(&peer->crypto);
+ 	spin_lock_init(&peer->lock);
++	spin_lock_init(&peer->en_work_indx_lock);
++	spin_lock_init(&peer->de_work_indx_lock);
+ 	kref_init(&peer->refcount);
  	ovpn_peer_stats_init(&peer->vpn_stats);
  	ovpn_peer_stats_init(&peer->link_stats);
  
@@ -114,7 +120,7 @@ Index: ovpn-dco-0.2.20241216/drivers/net/ovpn-dco/peer.c
  
  	ret = dst_cache_init(&peer->dst_cache, GFP_KERNEL);
  	if (ret < 0) {
-@@ -106,6 +118,15 @@ err_tx_ring:
+@@ -106,6 +120,15 @@ err_tx_ring:
  err_dst_cache:
  	dst_cache_destroy(&peer->dst_cache);
  err:
@@ -130,7 +136,7 @@ Index: ovpn-dco-0.2.20241216/drivers/net/ovpn-dco/peer.c
  	kfree(peer);
  	return ERR_PTR(ret);
  }
-@@ -211,6 +232,15 @@ static void ovpn_peer_free(struct ovpn_p
+@@ -211,6 +234,15 @@ static void ovpn_peer_free(struct ovpn_p
  
  	dev_put(peer->ovpn->dev);
  
