@@ -15,14 +15,13 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.c
 ===================================================================
 --- /dev/null
 +++ amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.c
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,121 @@
 +#include <linux/workqueue.h>
 +#include <linux/netlink.h>
 +#include <linux/kobject.h>
 +#include <linux/skbuff.h>
 +#include <linux/if.h>
 +
-+#include <zinc/curve25519.h>
 +#include "messages.h"
 +
 +#define SUBSYSTEM_NAME  "wireguard"
@@ -195,7 +194,7 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/timers.c
  			mod_peer_timer(peer, &peer->timer_zero_key_material,
  				       jiffies + REJECT_AFTER_TIME * 3 * HZ);
 +
-+			wireguard_hotplug(peer->device->dev->name, REKEY_GIVEUP_EVENT, peer->handshake.remote_static);
++		wireguard_hotplug(peer->device->dev->name, REKEY_GIVEUP_EVENT, peer->handshake.remote_static);
  	} else {
  		++peer->timer_handshake_attempts;
  		pr_debug("%s: Handshake for peer %llu (%pISpfsc) did not complete after %d seconds, retrying (try %d)\n",

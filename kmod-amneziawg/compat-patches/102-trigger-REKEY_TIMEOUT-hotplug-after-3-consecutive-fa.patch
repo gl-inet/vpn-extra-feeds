@@ -45,18 +45,18 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/timers.c
  static void wg_expired_retransmit_handshake(struct timer_list *timer)
  {
  	struct wg_peer *peer = from_timer(peer, timer,
-@@ -62,7 +63,13 @@ static void wg_expired_retransmit_handsh
- 			mod_peer_timer(peer, &peer->timer_zero_key_material,
- 				       jiffies + REJECT_AFTER_TIME * 3 * HZ);
+@@ -76,7 +77,13 @@ static void wg_expired_retransmit_handsh
+ 		wg_socket_clear_peer_endpoint_src(peer);
  
--			wireguard_hotplug(peer->device->dev->name, REKEY_GIVEUP_EVENT, peer->handshake.remote_static);
+ 		wg_packet_send_queued_handshake_initiation(peer, true);
+-		wireguard_hotplug(peer->device->dev->name, REKEY_TIMEOUT_EVENT, peer->handshake.remote_static);
++
 +		is_retry_count_wg++;
 +		if(is_retry_count_wg > 3)
 +		{
 +			is_retry_count_wg = 0;
 +			wireguard_hotplug(peer->device->dev->name, REKEY_TIMEOUT_EVENT, peer->handshake.remote_static);
 +		}
-+
- 	} else {
- 		++peer->timer_handshake_attempts;
- 		pr_debug("%s: Handshake for peer %llu (%pISpfsc) did not complete after %d seconds, retrying (try %d)\n",
+ 	}
+ }
+ 
