@@ -28,8 +28,10 @@ define KernelPackage/amneziawg
   DEPENDS:= \
 		+kmod-udptunnel4 \
 		+kmod-udptunnel6 \
-		+kmod-crypto-lib-chacha20poly1305 \
-		+kmod-crypto-lib-curve25519
+		+TARGET_mediatek_mt7981:kmod-crypto-lib-chacha20poly1305 \
+		+TARGET_mediatek_mt7981:kmod-crypto-lib-curve25519 \
+		+TARGET_mediatek_mt7986:kmod-crypto-lib-chacha20poly1305 \
+		+TARGET_mediatek_mt7986:kmod-crypto-lib-curve25519
 endef
 
 define Build/Compile
