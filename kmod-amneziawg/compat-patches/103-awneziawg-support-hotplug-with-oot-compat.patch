@@ -1,20 +1,20 @@
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/Kbuild
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/Kbuild
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20241112.orig/src/Kbuild
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/Kbuild
-@@ -10,7 +10,7 @@ ccflags-$(CONFIG_AMNEZIAWG_DEBUG) += -DD
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/Kbuild
++++ amneziawg-linux-kernel-module-1.0.20260210/src/Kbuild
+@@ -8,7 +8,7 @@ ccflags-$(CONFIG_AMNEZIAWG_DEBUG) += -DD
  ccflags-$(if $(WIREGUARD_VERSION),y,) += -D'WIREGUARD_VERSION="$(WIREGUARD_VERSION)"'
  ccflags-$(if $(OMIT_ENDPOINTS),y,) += -D'OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)"'
  
--amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o
-+amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o hotplug.o
+-amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o junk.o magic_header.o
++amneziawg-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o junk.o magic_header.o hotplug.o
  
- ifndef AWG_MODERN_KERNEL
-     include $(src)/crypto/Kbuild.include
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.c
+ ifeq ($(shell [ $(VERSION) -lt 6 -o \( $(VERSION) -eq 6 -a $(PATCHLEVEL) -lt 1 \) ] && echo y),y)
+ 	kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.c
 ===================================================================
 --- /dev/null
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.c
 @@ -0,0 +1,121 @@
 +#include <linux/workqueue.h>
 +#include <linux/netlink.h>
@@ -137,10 +137,10 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.c
 +    INIT_WORK(&event->work, hotplug_work);
 +    schedule_work(&event->work);
 +}
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.h
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.h
 ===================================================================
 --- /dev/null
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.h
++++ amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.h
 @@ -0,0 +1,14 @@
 +#ifndef __HOTPLUG_H__
 +#define __HOTPLUG_H__
@@ -156,11 +156,11 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/hotplug.h
 +#endif
 +
 +
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/noise.c
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20241112.orig/src/noise.c
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/noise.c
-@@ -11,6 +11,7 @@
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/noise.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
+@@ -12,6 +12,7 @@
  #include "peerlookup.h"
  #include "netlink.h"
  #include "socket.h"
@@ -168,7 +168,7 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/noise.c
  
  #include <linux/rcupdate.h>
  #include <linux/slab.h>
-@@ -834,6 +835,8 @@ bool wg_noise_handshake_begin_session(st
+@@ -866,6 +867,8 @@ bool wg_noise_handshake_begin_session(st
  		ret = wg_index_hashtable_replace(
  			handshake->entry.peer->device->index_hashtable,
  			&handshake->entry, &new_keypair->entry);
@@ -177,10 +177,24 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/noise.c
  	} else {
  		kfree_sensitive(new_keypair);
  	}
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/timers.c
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/send.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20241112.orig/src/timers.c
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/timers.c
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/send.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/send.c
+@@ -33,6 +33,9 @@ static void wg_packet_send_handshake_ini
+ 	int i;
+ 	struct jp_spec* spec;
+ 
++	if (!strncmp(peer->device->dev->name, "wgs", 3))
++		return;
++
+ 	if (!wg_birthdate_has_expired(atomic64_read(&peer->last_sent_handshake),
+ 				      REKEY_TIMEOUT))
+ 		return; /* This function is rate limited. */
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/timers.c
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/timers.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/timers.c
 @@ -8,6 +8,7 @@
  #include "peer.h"
  #include "queueing.h"
@@ -206,17 +220,3 @@ Index: amneziawg-linux-kernel-module-1.0.20241112/src/timers.c
  	}
  }
  
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/send.c
-===================================================================
---- amneziawg-linux-kernel-module-1.0.20241112.orig/src/send.c
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/send.c
-@@ -34,6 +34,9 @@ static void wg_packet_send_handshake_ini
- 	u8 ds;
- 	u16 junk_packet_count, junk_packet_size;
- 
-+	if (!strncmp(peer->device->dev->name, "wgs", 3))
-+		return;
-+
- 	if (!wg_birthdate_has_expired(atomic64_read(&peer->last_sent_handshake),
- 				      REKEY_TIMEOUT))
- 		return; /* This function is rate limited. */

@@ -2,6 +2,7 @@ include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 PKG_NAME:=kmod-amneziawg
 
+include $(INCLUDE_DIR)/kernel-defaults.mk
 # Detect if WireGuard exists in kernel tree
 $(info LINUX_DIR: $(LINUX_DIR))
 WG_IN_TREE_DIR := $(strip $(wildcard $(LINUX_DIR)/drivers/net/wireguard))
@@ -36,7 +37,7 @@ define Build/Compile
 	$(MAKE) -C "$(LINUX_DIR)" \
 		$(KERNEL_MAKE_FLAGS) \
 		M="$(AWG_BUILD_DIR)" \
-		EXTRA_CFLAGS="$(BUILDFLAGS) $(WG_EXTRA_CFLAGS)" \
+		EXTRA_CFLAGS="$(BUILDFLAGS) $(INTREE_EXTRA_CFLAGS) $(WG_EXTRA_CFLAGS)" \
 		modules
 endef
 

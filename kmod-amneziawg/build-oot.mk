@@ -1,12 +1,12 @@
 # Out-of-Tree Build Configuration
 # This file is included when WireGuard is not found in kernel tree
 
-PKG_VERSION:=1.0.20241112
+PKG_VERSION:=1.0.20260210
 PKG_RELEASE:=1
 
 PKG_SOURCE:=v$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/
-PKG_HASH:=3c70dce9aec00c217021037b475fbcb792ab701d72bfd696c866f8740b96218d
+PKG_HASH:=fd2ddb1f39c057663a95c3498a0e01b4fa9bd692289d72ac5ca63ae520444292
 
 PKG_SOURCE_SUBDIR:=amneziawg-linux-kernel-module-$(PKG_VERSION)
 PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/$(PKG_SOURCE_SUBDIR)

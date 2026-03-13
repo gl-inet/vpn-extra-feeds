@@ -1,0 +1,114 @@
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/Kbuild.include
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/compat/Kbuild.include
++++ amneziawg-linux-kernel-module-1.0.20260210/src/compat/Kbuild.include
+@@ -108,21 +108,13 @@ ifneq ($(shell grep -s -F "\#define LINU
+ ccflags-y += -DISDEBIAN
+ endif
+ 
+-ifeq ($(wildcard $(srctree)/include/crypto/blake2s.h),)
+-ccflags-y += -I$(kbuild-dir)/compat/crypto/blake2s/include
+-endif
++ccflags-y += -I$(kbuild-dir)/compat/crypto/blake2s/include/crypto
+ 
+-ifeq ($(wildcard $(srctree)/include/crypto/chacha20poly1305.h),)
+-ccflags-y += -I$(kbuild-dir)/compat/crypto/chacha20poly1305/include
+-endif
++ccflags-y += -I$(kbuild-dir)/compat/crypto/chacha20poly1305/include/crypto
+ 
+-ifeq ($(wildcard $(srctree)/include/crypto/utils.h),)
+-ccflags-y += -I$(kbuild-dir)/compat/crypto/utils/include
+-endif
++ccflags-y += -I$(kbuild-dir)/compat/crypto/utils/include/crypto
+ 
+-ifeq ($(wildcard $(srctree)/include/crypto/curve25519.h),)
+-ccflags-y += -I$(kbuild-dir)/compat/crypto/curve25519/include
+-endif
++ccflags-y += -I$(kbuild-dir)/compat/crypto/curve25519/include/crypto
+ 
+ ifeq ($(wildcard $(srctree)/include/linux/kstrtox.h),)
+ ccflags-y += -I$(kbuild-dir)/compat/kstrtox/include
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/crypto/utils/include/crypto/utils.h
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/compat/crypto/utils/include/crypto/utils.h
++++ /dev/null
+@@ -1 +0,0 @@
+-#include <crypto/algapi.h>
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/cookie.c
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/cookie.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/cookie.c
+@@ -10,9 +10,9 @@
+ #include "ratelimiter.h"
+ #include "timers.h"
+ 
+-#include <crypto/blake2s.h>
+-#include <crypto/chacha20poly1305.h>
+-#include <crypto/utils.h>
++#include "blake2s.h"
++#include "chacha20poly1305.h"
++#include "com_utils.h"
+ 
+ #include <net/ipv6.h>
+ 
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/main.c
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/main.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/main.c
+@@ -11,6 +11,7 @@
+ #include "ratelimiter.h"
+ #include "netlink.h"
+ #include "uapi/wireguard.h"
++#include "crypto/zinc.h"
+ 
+ #include <linux/init.h>
+ #include <linux/module.h>
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/messages.h
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/messages.h
++++ amneziawg-linux-kernel-module-1.0.20260210/src/messages.h
+@@ -6,9 +6,9 @@
+ #ifndef _WG_MESSAGES_H
+ #define _WG_MESSAGES_H
+ 
+-#include <crypto/curve25519.h>
+-#include <crypto/chacha20poly1305.h>
+-#include <crypto/blake2s.h>
++#include "curve25519.h"
++#include "chacha20poly1305.h"
++#include "blake2s.h"
+ 
+ #include <linux/kernel.h>
+ #include <linux/param.h>
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/netlink.c
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/netlink.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/netlink.c
+@@ -14,7 +14,7 @@
+ #include <linux/if.h>
+ #include <net/genetlink.h>
+ #include <net/sock.h>
+-#include <crypto/utils.h>
++#include "com_utils.h"
+ #include <linux/random.h>
+ #include <linux/bitops.h>
+ 
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
+===================================================================
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/noise.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
+@@ -18,7 +18,7 @@
+ #include <linux/bitmap.h>
+ #include <linux/scatterlist.h>
+ #include <linux/highmem.h>
+-#include <crypto/utils.h>
++#include "com_utils.h"
+ 
+ /* This implements Noise_IKpsk2:
+  *
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/crypto/utils/include/crypto/com_utils.h
+===================================================================
+--- /dev/null
++++ amneziawg-linux-kernel-module-1.0.20260210/src/compat/crypto/utils/include/crypto/com_utils.h
+@@ -0,0 +1 @@
++#include <crypto/algapi.h>

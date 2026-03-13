@@ -14,6 +14,15 @@ WG_EXTRA_CFLAGS:=
 # Include package.mk here for in-tree build
 include $(INCLUDE_DIR)/package.mk
 
+INTREE_EXTRA_CFLAGS:= \
+		-I$(PKG_BUILD_DIR)/compat/kstrtox/include \
+		-I$(PKG_BUILD_DIR)/compat/gso/include \
+		-I$(PKG_BUILD_DIR)/compat/sprintf/include \
+		-I$(PKG_BUILD_DIR) \
+		-include $(PKG_BUILD_DIR)/compat/compat.h \
+		-DGL_NOT_USE_COMPAT_CRYPTO \
+		-DGL_NOT_COMPAT_OLD_IP_TUNNEL_IF
+
 define Build/Prepare
 	$(call Build/Prepare/Default)
 	mkdir -p $(PKG_BUILD_DIR)
@@ -37,7 +46,7 @@ define Build/Prepare
 	# Apply board-specific patches (required)
 	if [ -d "$(CURDIR)/board_spec/$(BOARD)/$(SUBTARGET)/patches" ]; then \
 		for patch in $(CURDIR)/board_spec/$(BOARD)/$(SUBTARGET)/patches/*.patch; do \
-			[ -f "$$$$patch" ] && echo "Applying $$$$patch" && patch -d $(PKG_BUILD_DIR) -F3 -t -p0 < "$$$$patch" || true; \
+			[ -f "$$$$patch" ] && echo "Applying $$$$patch" && patch -d $(PKG_BUILD_DIR) -F3 -t -p1 < "$$$$patch" || true; \
 		done; \
 	else \
 		echo "[amneziawg-InTree] ERROR: No board-specific patches found for $(BOARD)/$(SUBTARGET) in-tree build!"; \

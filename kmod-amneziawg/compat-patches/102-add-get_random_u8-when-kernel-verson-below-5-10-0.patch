@@ -1,8 +1,8 @@
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/compat/compat.h
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/compat.h
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20241112.orig/src/compat/compat.h
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/compat/compat.h
-@@ -1152,6 +1152,17 @@ static inline void dst_cache_reset_now(s
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/compat/compat.h
++++ amneziawg-linux-kernel-module-1.0.20260210/src/compat/compat.h
+@@ -1168,6 +1168,17 @@ static inline void dst_cache_reset_now(s
  }
  #endif
  

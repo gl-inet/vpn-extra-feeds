@@ -1,10 +1,10 @@
-Index: amneziawg-linux-kernel-module-1.0.20241112/src/device.c
+Index: amneziawg-linux-kernel-module-1.0.20260210/src/device.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20241112.orig/src/device.c
-+++ amneziawg-linux-kernel-module-1.0.20241112/src/device.c
-@@ -332,18 +332,18 @@ static int wg_newlink(struct net *src_ne
- 	if (!dev->tstats)
+--- amneziawg-linux-kernel-module-1.0.20260210.orig/src/device.c
++++ amneziawg-linux-kernel-module-1.0.20260210/src/device.c
+@@ -387,18 +387,18 @@ static int wg_newlink(struct net_device
  		goto err_free_index_hashtable;
+ #endif
  
 -	wg->handshake_receive_wq = alloc_workqueue("wg-kex-%s",
 -			WQ_CPU_INTENSIVE | WQ_FREEZABLE, 0, dev->name);

@@ -4,6 +4,8 @@ ccflags-y := -D'pr_fmt(fmt)=KBUILD_MODNAME ": " fmt'
 # ccflags-y += -D'WIREGUARD_VERSION="$(WIREGUARD_VERSION)"'
 # ccflags-y += -DDEBUG
 amneziawg-y := hotplug.o
+amneziawg-y += junk.o
+amneziawg-y += magic_header.o
 amneziawg-y += main.o
 amneziawg-y += noise.o
 amneziawg-y += device.o
