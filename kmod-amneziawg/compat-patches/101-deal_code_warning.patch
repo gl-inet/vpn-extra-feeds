@@ -1,7 +1,7 @@
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/crypto/zinc/blake2s/blake2s.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/crypto/zinc/blake2s/blake2s.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/crypto/zinc/blake2s/blake2s.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/crypto/zinc/blake2s/blake2s.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/crypto/zinc/blake2s/blake2s.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/crypto/zinc/blake2s/blake2s.c
 @@ -251,7 +251,7 @@ static int __init mod_init(void)
  {
  	if (!nosimd)
@@ -11,10 +11,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/crypto/zinc/blake2s/blake2
  			  ARRAY_SIZE(blake2s_nobs)))
  		return -ENOTRECOVERABLE;
  	return 0;
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/crypto/zinc/curve25519/curve25519.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/crypto/zinc/curve25519/curve25519.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/crypto/zinc/curve25519/curve25519.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/crypto/zinc/curve25519/curve25519.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/crypto/zinc/curve25519/curve25519.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/crypto/zinc/curve25519/curve25519.c
 @@ -89,7 +89,7 @@ static int __init mod_init(void)
  {
  	if (!nosimd)
@@ -24,3 +24,31 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/crypto/zinc/curve25519/cur
  			  ARRAY_SIZE(curve25519_nobs)))
  		return -ENOTRECOVERABLE;
  	return 0;
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/crypto/zinc/selftest/blake2s.c
+===================================================================
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/crypto/zinc/selftest/blake2s.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/crypto/zinc/selftest/blake2s.c
+@@ -2072,7 +2072,11 @@ static bool __init blake2s_selftest(void
+ 		buf[i] = (u8)i;
+ 
+ 	for (i = 0; i < ARRAY_SIZE(blake2s_keyed_testvecs); ++i) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 19, 0)
++		blake2s(key, BLAKE2S_HASH_SIZE, buf, i, hash, BLAKE2S_KEY_SIZE);
++#else
+ 		blake2s(hash, buf, key, BLAKE2S_HASH_SIZE, i, BLAKE2S_KEY_SIZE);
++#endif
+ 		if (memcmp(hash, blake2s_keyed_testvecs[i], BLAKE2S_HASH_SIZE)) {
+ 			pr_err("blake2s keyed self-test %zu: FAIL\n", i + 1);
+ 			success = false;
+@@ -2080,7 +2084,11 @@ static bool __init blake2s_selftest(void
+ 	}
+ 
+ 	for (i = 0; i < ARRAY_SIZE(blake2s_testvecs); ++i) {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 19, 0)
++		blake2s(NULL, 0, buf, i, hash, BLAKE2S_HASH_SIZE);
++#else
+ 		blake2s(hash, buf, NULL, BLAKE2S_HASH_SIZE, i, 0);
++#endif
+ 		if (memcmp(hash, blake2s_testvecs[i], BLAKE2S_HASH_SIZE)) {
+ 			pr_err("blake2s unkeyed self-test %zu: FAIL\n", i + i);
+ 			success = false;

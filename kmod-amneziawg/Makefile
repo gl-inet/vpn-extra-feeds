@@ -10,13 +10,7 @@ $(info WG_IN_TREE_DIR: $(WG_IN_TREE_DIR))
 $(info Checking path: $(WG_IN_TREE_DIR))
 
 # This sets PKG_SOURCE, PKG_VERSION, PKG_BUILD_DIR etc.
-ifeq ($(WG_IN_TREE_DIR),)
-  # Out-of-tree: include download and build configuration
-  include $(CURDIR)/build-oot.mk
-else
-  # In-tree: no download needed
-  include $(CURDIR)/build-intree.mk
-endif
+include $(CURDIR)/build-oot.mk
 
 define KernelPackage/amneziawg
   SECTION:=kernel
@@ -37,7 +31,7 @@ define Build/Compile
 	$(MAKE) -C "$(LINUX_DIR)" \
 		$(KERNEL_MAKE_FLAGS) \
 		M="$(AWG_BUILD_DIR)" \
-		EXTRA_CFLAGS="$(BUILDFLAGS) $(INTREE_EXTRA_CFLAGS) $(WG_EXTRA_CFLAGS)" \
+		EXTRA_CFLAGS="$(BUILDFLAGS) $(INTREE_EXTRA_CFLAGS) $(WG_EXTRA_CFLAGS) $(AWG_EXTRA_CFLAGS)" \
 		modules
 endef
 

@@ -1,7 +1,7 @@
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/Kbuild
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/Kbuild
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/Kbuild
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/Kbuild
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/Kbuild
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/Kbuild
 @@ -8,7 +8,7 @@ ccflags-$(CONFIG_AMNEZIAWG_DEBUG) += -DD
  ccflags-$(if $(WIREGUARD_VERSION),y,) += -D'WIREGUARD_VERSION="$(WIREGUARD_VERSION)"'
  ccflags-$(if $(OMIT_ENDPOINTS),y,) += -D'OMIT_ENDPOINTS="$(OMIT_ENDPOINTS)"'
@@ -11,10 +11,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/Kbuild
  
  ifeq ($(shell [ $(VERSION) -lt 6 -o \( $(VERSION) -eq 6 -a $(PATCHLEVEL) -lt 1 \) ] && echo y),y)
  	kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/hotplug.c
 ===================================================================
 --- /dev/null
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/hotplug.c
 @@ -0,0 +1,121 @@
 +#include <linux/workqueue.h>
 +#include <linux/netlink.h>
@@ -137,10 +137,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.c
 +    INIT_WORK(&event->work, hotplug_work);
 +    schedule_work(&event->work);
 +}
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.h
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/hotplug.h
 ===================================================================
 --- /dev/null
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.h
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/hotplug.h
 @@ -0,0 +1,14 @@
 +#ifndef __HOTPLUG_H__
 +#define __HOTPLUG_H__
@@ -156,10 +156,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/hotplug.h
 +#endif
 +
 +
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/noise.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/noise.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/noise.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/noise.c
 @@ -12,6 +12,7 @@
  #include "peerlookup.h"
  #include "netlink.h"
@@ -177,11 +177,11 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
  	} else {
  		kfree_sensitive(new_keypair);
  	}
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/send.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/send.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/send.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/send.c
-@@ -33,6 +33,9 @@ static void wg_packet_send_handshake_ini
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/send.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/send.c
+@@ -34,6 +34,9 @@ static void wg_packet_send_handshake_ini
  	int i;
  	struct jp_spec* spec;
  
@@ -191,10 +191,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/send.c
  	if (!wg_birthdate_has_expired(atomic64_read(&peer->last_sent_handshake),
  				      REKEY_TIMEOUT))
  		return; /* This function is rate limited. */
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/timers.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/timers.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/timers.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/timers.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/timers.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/timers.c
 @@ -8,6 +8,7 @@
  #include "peer.h"
  #include "queueing.h"

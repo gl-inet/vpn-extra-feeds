@@ -1,24 +1,39 @@
 # Out-of-Tree Build Configuration
 # This file is included when WireGuard is not found in kernel tree
 
-PKG_VERSION:=1.0.20260210
-PKG_RELEASE:=1
+PKG_VERSION:=amneziawg-ac946a9
+PKG_RELEASE:=2.0
 
-PKG_SOURCE:=v$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL:=https://github.com/amnezia-vpn/amneziawg-linux-kernel-module/archive/refs/tags/
-PKG_HASH:=fd2ddb1f39c057663a95c3498a0e01b4fa9bd692289d72ac5ca63ae520444292
+PKG_SOURCE:=$(PKG_VERSION).tar.gz
+
+PKG_SOURCE_PROTO:=git
+PKG_SOURCE_URL:=https://github.com/amnezia-vpn/amneziawg-linux-kernel-module.git
+PKG_SOURCE_VERSION:=ac946a9df100a17d342b5982d1947deef1b51952
 
 PKG_SOURCE_SUBDIR:=amneziawg-linux-kernel-module-$(PKG_VERSION)
 PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/$(PKG_SOURCE_SUBDIR)
 AWG_BUILD_DIR:=$(PKG_BUILD_DIR)/src
 
 # Extra compiler flags for out-of-tree build
-WG_EXTRA_CFLAGS:=-Wno-error=stringop-overread
-
+AWG_EXTRA_CFLAGS:=
+# AWG_EXTRA_CFLAGS+=-Wno-error=stringop-overread
 # Include package.mk here for out-of-tree build
 include $(INCLUDE_DIR)/package.mk
 
 # Build/Prepare: unpack source and apply compat patches
+
+ifeq ($(CONFIG_TARGET_mediatek_mt7981),y)
+  AWG_EXTRA_CFLAGS+=-DGL_NOT_COMPAT_OLD_IP_TUNNEL_IF
+endif
+
+ifeq ($(CONFIG_TARGET_mediatek_mt7986),y)
+  AWG_EXTRA_CFLAGS+=-DGL_NOT_COMPAT_OLD_IP_TUNNEL_IF
+endif
+
+ifeq ($(CONFIG_TARGET_mediatek_mt7988),y)
+  AWG_EXTRA_CFLAGS+=-DGL_NOT_COMPAT_OLD_IP_TUNNEL_IF
+endif
+
 define Build/Prepare
 	$(call Build/Prepare/Default)
 	@echo "[amneziawg-OOT] Applying compat patches"

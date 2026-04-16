@@ -13,11 +13,11 @@ Signed-off-by: Dongming Han <handongming@gl-inet.com>
  src/timers.c  | 9 +++++++--
  2 files changed, 9 insertions(+), 2 deletions(-)
 
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/receive.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/receive.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/receive.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/receive.c
-@@ -116,6 +116,7 @@ static int prepare_skb_header(struct sk_
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/receive.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/receive.c
+@@ -118,6 +118,7 @@ static int prepare_skb_header(struct sk_
  	return 0;
  }
  
@@ -25,7 +25,7 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/receive.c
  static void wg_receive_handshake_packet(struct wg_device *wg,
  					struct sk_buff *skb)
  {
-@@ -210,6 +211,7 @@ static void wg_receive_handshake_packet(
+@@ -212,6 +213,7 @@ static void wg_receive_handshake_packet(
  			 */
  			wg_packet_send_keepalive(peer);
  		}
@@ -33,10 +33,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/receive.c
  	}
  
  	if (unlikely(!peer)) {
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/timers.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/timers.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/timers.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/timers.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/timers.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/timers.c
 @@ -39,6 +39,7 @@ static inline void mod_peer_timer(struct
  	rcu_read_unlock_bh();
  }

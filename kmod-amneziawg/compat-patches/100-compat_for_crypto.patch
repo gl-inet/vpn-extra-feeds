@@ -1,7 +1,7 @@
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/Kbuild.include
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/compat/Kbuild.include
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/compat/Kbuild.include
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/compat/Kbuild.include
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/compat/Kbuild.include
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/compat/Kbuild.include
 @@ -108,21 +108,13 @@ ifneq ($(shell grep -s -F "\#define LINU
  ccflags-y += -DISDEBIAN
  endif
@@ -28,16 +28,16 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/Kbuild.include
  
  ifeq ($(wildcard $(srctree)/include/linux/kstrtox.h),)
  ccflags-y += -I$(kbuild-dir)/compat/kstrtox/include
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/crypto/utils/include/crypto/utils.h
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/compat/crypto/utils/include/crypto/utils.h
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/compat/crypto/utils/include/crypto/utils.h
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/compat/crypto/utils/include/crypto/utils.h
 +++ /dev/null
 @@ -1 +0,0 @@
 -#include <crypto/algapi.h>
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/cookie.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/cookie.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/cookie.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/cookie.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/cookie.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/cookie.c
 @@ -10,9 +10,9 @@
  #include "ratelimiter.h"
  #include "timers.h"
@@ -51,10 +51,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/cookie.c
  
  #include <net/ipv6.h>
  
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/main.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/main.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/main.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/main.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/main.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/main.c
 @@ -11,6 +11,7 @@
  #include "ratelimiter.h"
  #include "netlink.h"
@@ -63,10 +63,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/main.c
  
  #include <linux/init.h>
  #include <linux/module.h>
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/messages.h
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/messages.h
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/messages.h
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/messages.h
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/messages.h
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/messages.h
 @@ -6,9 +6,9 @@
  #ifndef _WG_MESSAGES_H
  #define _WG_MESSAGES_H
@@ -80,10 +80,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/messages.h
  
  #include <linux/kernel.h>
  #include <linux/param.h>
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/netlink.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/netlink.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/netlink.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/netlink.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/netlink.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/netlink.c
 @@ -14,7 +14,7 @@
  #include <linux/if.h>
  #include <net/genetlink.h>
@@ -93,10 +93,10 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/netlink.c
  #include <linux/random.h>
  #include <linux/bitops.h>
  
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/noise.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/noise.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/noise.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/noise.c
 @@ -18,7 +18,7 @@
  #include <linux/bitmap.h>
  #include <linux/scatterlist.h>
@@ -106,9 +106,31 @@ Index: amneziawg-linux-kernel-module-1.0.20260210/src/noise.c
  
  /* This implements Noise_IKpsk2:
   *
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/compat/crypto/utils/include/crypto/com_utils.h
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/compat/crypto/utils/include/crypto/com_utils.h
 ===================================================================
 --- /dev/null
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/compat/crypto/utils/include/crypto/com_utils.h
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/compat/crypto/utils/include/crypto/com_utils.h
 @@ -0,0 +1 @@
 +#include <crypto/algapi.h>
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/compat/compat.h
+===================================================================
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/compat/compat.h
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/compat/compat.h
+@@ -1087,7 +1087,7 @@ static inline void skb_reset_redirect(st
+ #define pre_exit exit
+ #endif
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
++#if defined(GL_COMPAT_OLD_IP_TUNNEL_IF) || (LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)) && !defined(GL_NOT_COMPAT_OLD_IP_TUNNEL_IF)
+ #include <linux/skbuff.h>
+ #include <linux/ip.h>
+ #include <linux/ipv6.h>
+@@ -1401,7 +1401,7 @@ static inline char *nla_strdup(const str
+ 
+ /* Kernel 6.19+ renamed blake2s_state to blake2s_ctx and changed blake2s() arg order */
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 19, 0)
+-#include <crypto/blake2s.h>
++#include "blake2s.h"
+ #define blake2s_ctx blake2s_state
+ #define blake2s(key, keylen, in, inlen, out, outlen) \
+ 	blake2s(out, in, key, outlen, inlen, keylen)

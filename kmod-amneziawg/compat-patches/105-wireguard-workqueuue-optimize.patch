@@ -1,8 +1,8 @@
-Index: amneziawg-linux-kernel-module-1.0.20260210/src/device.c
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/device.c
 ===================================================================
---- amneziawg-linux-kernel-module-1.0.20260210.orig/src/device.c
-+++ amneziawg-linux-kernel-module-1.0.20260210/src/device.c
-@@ -387,18 +387,18 @@ static int wg_newlink(struct net_device
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/device.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/device.c
+@@ -389,18 +389,18 @@ static int wg_newlink(struct net_device
  		goto err_free_index_hashtable;
  #endif
  
