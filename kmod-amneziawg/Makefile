@@ -30,6 +30,7 @@ endef
 define Build/Compile
 	$(MAKE) -C "$(LINUX_DIR)" \
 		$(KERNEL_MAKE_FLAGS) \
+		$(AWG_EXTRA_MAKE_FLAGS) \
 		M="$(AWG_BUILD_DIR)" \
 		EXTRA_CFLAGS="$(BUILDFLAGS) $(INTREE_EXTRA_CFLAGS) $(WG_EXTRA_CFLAGS) $(AWG_EXTRA_CFLAGS)" \
 		modules

@@ -168,7 +168,7 @@ Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/noise.c
  
  #include <linux/rcupdate.h>
  #include <linux/slab.h>
-@@ -866,6 +867,8 @@ bool wg_noise_handshake_begin_session(st
+@@ -870,6 +871,8 @@ bool wg_noise_handshake_begin_session(st
  		ret = wg_index_hashtable_replace(
  			handshake->entry.peer->device->index_hashtable,
  			&handshake->entry, &new_keypair->entry);
