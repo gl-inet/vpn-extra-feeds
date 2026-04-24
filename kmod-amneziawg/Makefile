@@ -12,6 +12,11 @@ $(info Checking path: $(WG_IN_TREE_DIR))
 # This sets PKG_SOURCE, PKG_VERSION, PKG_BUILD_DIR etc.
 include $(CURDIR)/build-oot.mk
 
+# Conditional dependency prefix for MediaTek mt798x/filogic targets.
+# Cannot be split across lines: Make's backslash-newline inserts a space,
+# which would break OpenWrt's '||' dependency expression parser.
+MT798X_DEP := +TARGET_mediatek_mt7981||TARGET_mediatek_mt7986||TARGET_mediatek_mt7988||TARGET_mediatek_filogic
+
 define KernelPackage/amneziawg
   SECTION:=kernel
   CATEGORY:=Kernel modules
@@ -23,8 +28,8 @@ define KernelPackage/amneziawg
   DEPENDS:= \
 		+kmod-udptunnel4 \
 		+kmod-udptunnel6 \
-		+TARGET_mediatek_mt7981||TARGET_mediatek_mt7986||TARGET_mediatek_mt7988:kmod-crypto-lib-chacha20poly1305 \
-		+TARGET_mediatek_mt7981||TARGET_mediatek_mt7986||TARGET_mediatek_mt7988:kmod-crypto-lib-curve25519
+		$(MT798X_DEP):kmod-crypto-lib-chacha20poly1305 \
+		$(MT798X_DEP):kmod-crypto-lib-curve25519
 endef
 
 define Build/Compile
