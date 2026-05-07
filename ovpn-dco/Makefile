@@ -8,13 +8,14 @@
 include $(TOPDIR)/rules.mk
 include $(INCLUDE_DIR)/kernel.mk
 
-PKG_NAME:=ovpn-dco
-PKG_VERSION:=0.2.20241216
+PKG_NAME:=ovpn-backports
+PKG_VERSION:=main-7.1.0-rc1-2026050800
 PKG_RELEASE:=1
 
-PKG_SOURCE:=v$(PKG_VERSION).tar.gz
-PKG_SOURCE_URL=https://github.com/OpenVPN/ovpn-dco/archive/refs/tags/
-PKG_HASH:=dfc30c86e686779635b31f433fc4908d
+PKG_SOURCE:=ovpn-net-next/$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL=https://github.com/OpenVPN/ovpn-backports/archive/refs/tags/
+PKG_HASH:=b89d610924fedc1a4c0f3d0e928f2b9dc3f54927f0257154d034ee7d9335266c
+PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/ovpn-backports-ovpn-net-next-$(PKG_VERSION)
 
 PKG_MAINTAINER:=Jianhui Zhao <zhaojh329@gmail.com>
 PKG_LICENSE:=GPL-2.0-only
@@ -44,8 +45,8 @@ define KernelPackage/ovpn-dco-v2
   SUBMENU:=Network Support
   TITLE:=OpenVPN data channel offload
   DEPENDS:=+kmod-udptunnel4 +IPV6:kmod-udptunnel6
-  FILES:=$(PKG_BUILD_DIR)/drivers/net/ovpn-dco/ovpn-dco-v2.ko
-  AUTOLOAD:=$(call AutoLoad,30,ovpn-dco-v2)
+  FILES:=$(PKG_BUILD_DIR)/drivers/net/ovpn/ovpn.ko
+  AUTOLOAD:=$(call AutoLoad,30,ovpn)
   $(call AddDpends/vpn-crypto-acceleration)
 endef
 
@@ -61,11 +62,12 @@ NOSTDINC_FLAGS += \
 	-include $(PKG_BUILD_DIR)/linux-compat.h
 
 EXTRA_KCONFIG:= \
-	CONFIG_OVPN_DCO_V2=m
+	CONFIG_OVPN=m
 
-PKG_EXTMOD_SUBDIRS = drivers/net/ovpn-dco
+PKG_EXTMOD_SUBDIRS = drivers/net/ovpn
 
 MAKE_OPTS:= \
+	KBUILD_MODPOST_WARN=1 \
 	$(KERNEL_MAKE_FLAGS) \
 	M="$(PKG_BUILD_DIR)" \
 	NOSTDINC_FLAGS="$(NOSTDINC_FLAGS)" \
