@@ -1,0 +1,136 @@
+From 77dc28bd14c8d1af47040d28c457899956ec9b2d Mon Sep 17 00:00:00 2001
+From: chenyk <chenyk@gl-inet.com>
+Date: Fri, 15 May 2026 14:15:51 +0800
+Subject: [PATCH 103/103] perf: pktid atomic_t and misc optimizations
+
+Change pktid_recv.id from u32 to atomic_t for future lock-free fast path.
+Update all accesses in pktid.c to use atomic_read/atomic_set.
+Add ovpn_pktid_precheck() inline helper.
+Add ovpn_pktid_from_skb() helper in proto.h.
+
+Signed-off-by: chenyk <chenyk@gl-inet.com>
+---
+ drivers/net/ovpn/pktid.c | 16 ++++++++--------
+ drivers/net/ovpn/pktid.h | 16 +++++++++++++++-
+ drivers/net/ovpn/proto.h | 15 +++++++++++++++
+ 3 files changed, 38 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/net/ovpn/pktid.c b/drivers/net/ovpn/pktid.c
+index f1c243b..5b4c000 100644
+--- a/drivers/net/ovpn/pktid.c
++++ b/drivers/net/ovpn/pktid.c
+@@ -44,7 +44,7 @@ int ovpn_pktid_recv(struct ovpn_pktid_recv *pr, u32 pkt_id, u32 pkt_time)
+ 
+ 	/* expire backtracks at or below pr->id after PKTID_RECV_EXPIRE time */
+ 	if (unlikely(time_after_eq(now, pr->expire)))
+-		pr->id_floor = pr->id;
++		pr->id_floor = atomic_read(&pr->id);
+ 
+ 	/* time changed? */
+ 	if (unlikely(pkt_time != pr->time)) {
+@@ -52,7 +52,7 @@ int ovpn_pktid_recv(struct ovpn_pktid_recv *pr, u32 pkt_id, u32 pkt_time)
+ 			/* time moved forward, accept */
+ 			pr->base = 0;
+ 			pr->extent = 0;
+-			pr->id = 0;
++			atomic_set(&pr->id, 0);
+ 			pr->time = pkt_time;
+ 			pr->id_floor = 0;
+ 		} else {
+@@ -62,16 +62,16 @@ int ovpn_pktid_recv(struct ovpn_pktid_recv *pr, u32 pkt_id, u32 pkt_time)
+ 		}
+ 	}
+ 
+-	if (likely(pkt_id == pr->id + 1)) {
++	if (likely(pkt_id == (u32)atomic_read(&pr->id) + 1)) {
+ 		/* well-formed ID sequence (incremented by 1) */
+ 		pr->base = REPLAY_INDEX(pr->base, -1);
+ 		__set_bit(pr->base, pr->history);
+ 		if (pr->extent < REPLAY_WINDOW_SIZE)
+ 			++pr->extent;
+-		pr->id = pkt_id;
+-	} else if (pkt_id > pr->id) {
++		atomic_set(&pr->id, pkt_id);
++	} else if (pkt_id > (u32)atomic_read(&pr->id)) {
+ 		/* ID jumped forward by more than one */
+-		const unsigned int delta = pkt_id - pr->id;
++		const unsigned int delta = pkt_id - (u32)atomic_read(&pr->id);
+ 
+ 		if (delta < REPLAY_WINDOW_SIZE) {
+ 			unsigned int i;
+@@ -92,10 +92,10 @@ int ovpn_pktid_recv(struct ovpn_pktid_recv *pr, u32 pkt_id, u32 pkt_time)
+ 			memset(pr->history, 0, sizeof(pr->history));
+ 			pr->history[0] = 1;
+ 		}
+-		pr->id = pkt_id;
++		atomic_set(&pr->id, pkt_id);
+ 	} else {
+ 		/* ID backtrack */
+-		const unsigned int delta = pr->id - pkt_id;
++		const unsigned int delta = (u32)atomic_read(&pr->id) - pkt_id;
+ 
+ 		if (delta > pr->max_backtrack)
+ 			pr->max_backtrack = delta;
+diff --git a/drivers/net/ovpn/pktid.h b/drivers/net/ovpn/pktid.h
+index 21845f3..4388324 100644
+--- a/drivers/net/ovpn/pktid.h
++++ b/drivers/net/ovpn/pktid.h
+@@ -42,7 +42,7 @@ struct ovpn_pktid_recv {
+ 	/* expiration of history in jiffies */
+ 	unsigned long expire;
+ 	/* highest sequence number received */
+-	u32 id;
++	atomic_t id;
+ 	/* highest time stamp received */
+ 	u32 time;
+ 	/* we will only accept backtrack IDs > id_floor */
+@@ -78,6 +78,20 @@ static inline void ovpn_pktid_aead_write(const u32 pktid,
+ 	memcpy(dest + 4, nt, OVPN_NONCE_TAIL_SIZE);
+ }
+ 
++/**
++ * ovpn_pktid_precheck - precheck packet ID without modifying state
++ * @pr: packet ID receiver state
++ * @pkt_id: packet ID to check
++ *
++ * Return: 0 if packet ID is acceptable, -EINVAL if rejected
++ */
++static inline int ovpn_pktid_precheck(struct ovpn_pktid_recv *pr, u32 pkt_id)
++{
++	if (pkt_id == 0 || pkt_id <= READ_ONCE(pr->id_floor))
++		return -EINVAL;
++	return 0;
++}
++
+ void ovpn_pktid_xmit_init(struct ovpn_pktid_xmit *pid);
+ void ovpn_pktid_recv_init(struct ovpn_pktid_recv *pr);
+ 
+diff --git a/drivers/net/ovpn/proto.h b/drivers/net/ovpn/proto.h
+index b7d285b..8923bcc 100644
+--- a/drivers/net/ovpn/proto.h
++++ b/drivers/net/ovpn/proto.h
+@@ -99,6 +99,21 @@ static inline u8 ovpn_key_id_from_skb(const struct sk_buff *skb)
+ 	return FIELD_GET(OVPN_OPCODE_KEYID_MASK, opcode);
+ }
+ 
++/**
++ * ovpn_pktid_from_skb - extract packet ID from skb at specified offset
++ * @skb: the packet to extract the packet ID from
++ * @offset: the offset in the data buffer where the opcode is located
++ *
++ * Note: this function assumes that the skb head was pulled enough
++ * to access the packet ID.
++ *
++ * Return: the packet ID in host byte order
++ */
++static inline u32 ovpn_pktid_from_skb(const struct sk_buff *skb, u16 offset)
++{
++	return be32_to_cpu(*(__be32 *)(skb->data + offset + OVPN_OPCODE_SIZE));
++}
++
+ /**
+  * ovpn_opcode_compose - combine OP code, key ID and peer ID to wire format
+  * @opcode: the OP code
+-- 
+2.43.0
+

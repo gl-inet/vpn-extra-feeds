@@ -1,0 +1,189 @@
+From 3f4d1adc584e052ba7ef60f1cb1720447e45074c Mon Sep 17 00:00:00 2001
+From: chenyk <chenyk@gl-inet.com>
+Date: Fri, 15 May 2026 14:15:50 +0800
+Subject: [PATCH 100/103] perf: replace atomic64 stats with per-CPU counters
+
+Use per-CPU counters with u64_stats_sync for peer TX/RX statistics,
+eliminating cache-line bouncing in multi-core parallel crypto paths.
+ovpn_peer_stats_init() now returns int (may fail on alloc_percpu).
+netlink.c adapted to use ovpn_peer_stat_read() for reading stats.
+
+Signed-off-by: chenyk <chenyk@gl-inet.com>
+---
+ drivers/net/ovpn/netlink.c | 25 ++++++++++++------
+ drivers/net/ovpn/stats.c   | 52 +++++++++++++++++++++++++++++++++-----
+ drivers/net/ovpn/stats.h   | 26 +++++++++++++++----
+ 3 files changed, 84 insertions(+), 19 deletions(-)
+
+Index: ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/netlink.c
+===================================================================
+--- ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800.orig/drivers/net/ovpn/netlink.c
++++ ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/netlink.c
+@@ -629,6 +629,10 @@ static int ovpn_nl_send_peer_common(stru
+ 				    const struct genl_info *info, const struct ovpn_peer *peer,
+ 				    u32 portid, u32 seq, int flags)
+ {
++	u64 vpn_rx_bytes, vpn_rx_packets;
++	u64 vpn_tx_bytes, vpn_tx_packets;
++	u64 link_rx_bytes, link_rx_packets;
++	u64 link_tx_bytes, link_tx_packets;
+ 	const struct ovpn_bind *bind;
+ 	struct ovpn_socket *sock;
+ 	int ret = -EMSGSIZE;
+@@ -706,27 +710,32 @@ static int ovpn_nl_send_peer_common(stru
+ 	}
+ 	rcu_read_unlock();
+ 
++	ovpn_peer_stat_read(&peer->vpn_stats.rx, &vpn_rx_bytes, &vpn_rx_packets);
++	ovpn_peer_stat_read(&peer->vpn_stats.tx, &vpn_tx_bytes, &vpn_tx_packets);
++	ovpn_peer_stat_read(&peer->link_stats.rx, &link_rx_bytes, &link_rx_packets);
++	ovpn_peer_stat_read(&peer->link_stats.tx, &link_tx_bytes, &link_tx_packets);
++
+ 	if (nla_put_net16(skb, OVPN_A_PEER_LOCAL_PORT, local_port) ||
+ 	    /* VPN RX stats */
+ 	    nla_put_uint(skb, OVPN_A_PEER_VPN_RX_BYTES,
+-			 atomic64_read(&peer->vpn_stats.rx.bytes)) ||
++			 vpn_rx_bytes) ||
+ 	    nla_put_uint(skb, OVPN_A_PEER_VPN_RX_PACKETS,
+-			 atomic64_read(&peer->vpn_stats.rx.packets)) ||
++			 vpn_rx_packets) ||
+ 	    /* VPN TX stats */
+ 	    nla_put_uint(skb, OVPN_A_PEER_VPN_TX_BYTES,
+-			 atomic64_read(&peer->vpn_stats.tx.bytes)) ||
++			 vpn_tx_bytes) ||
+ 	    nla_put_uint(skb, OVPN_A_PEER_VPN_TX_PACKETS,
+-			 atomic64_read(&peer->vpn_stats.tx.packets)) ||
++			 vpn_tx_packets) ||
+ 	    /* link RX stats */
+ 	    nla_put_uint(skb, OVPN_A_PEER_LINK_RX_BYTES,
+-			 atomic64_read(&peer->link_stats.rx.bytes)) ||
++			 link_rx_bytes) ||
+ 	    nla_put_uint(skb, OVPN_A_PEER_LINK_RX_PACKETS,
+-			 atomic64_read(&peer->link_stats.rx.packets)) ||
++			 link_rx_packets) ||
+ 	    /* link TX stats */
+ 	    nla_put_uint(skb, OVPN_A_PEER_LINK_TX_BYTES,
+-			 atomic64_read(&peer->link_stats.tx.bytes)) ||
++			 link_tx_bytes) ||
+ 	    nla_put_uint(skb, OVPN_A_PEER_LINK_TX_PACKETS,
+-			 atomic64_read(&peer->link_stats.tx.packets)))
++			 link_tx_packets))
+ 		goto err;
+ 
+ 	nla_nest_end(skb, attr);
+Index: ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/stats.c
+===================================================================
+--- ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800.orig/drivers/net/ovpn/stats.c
++++ ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/stats.c
+@@ -7,15 +7,55 @@
+  *		Antonio Quartulli <antonio@openvpn.net>
+  */
+ 
+-#include <linux/atomic.h>
++#include <linux/cpumask.h>
+ 
+ #include "stats.h"
+ 
+-void ovpn_peer_stats_init(struct ovpn_peer_stats *ps)
++int ovpn_peer_stats_init(struct ovpn_peer_stats *ps)
+ {
+-	atomic64_set(&ps->rx.bytes, 0);
+-	atomic64_set(&ps->rx.packets, 0);
++	ps->rx.pcpu = alloc_percpu(struct ovpn_peer_stat_pcpu);
++	if (!ps->rx.pcpu)
++		return -ENOMEM;
+ 
+-	atomic64_set(&ps->tx.bytes, 0);
+-	atomic64_set(&ps->tx.packets, 0);
++	ps->tx.pcpu = alloc_percpu(struct ovpn_peer_stat_pcpu);
++	if (!ps->tx.pcpu) {
++		free_percpu(ps->rx.pcpu);
++		ps->rx.pcpu = NULL;
++		return -ENOMEM;
++	}
++
++	return 0;
++}
++
++void ovpn_peer_stats_free(struct ovpn_peer_stats *ps)
++{
++	free_percpu(ps->rx.pcpu);
++	free_percpu(ps->tx.pcpu);
++	ps->rx.pcpu = NULL;
++	ps->tx.pcpu = NULL;
++}
++
++void ovpn_peer_stat_read(const struct ovpn_peer_stat *stat, u64 *bytes,
++			 u64 *packets)
++{
++	int cpu;
++
++	*bytes = 0;
++	*packets = 0;
++
++	for_each_possible_cpu(cpu) {
++		const struct ovpn_peer_stat_pcpu *pcpu = per_cpu_ptr(stat->pcpu, cpu);
++		unsigned int start;
++		u64 b;
++		u64 p;
++
++		do {
++			start = u64_stats_fetch_begin(&pcpu->syncp);
++			b = pcpu->bytes;
++			p = pcpu->packets;
++		} while (u64_stats_fetch_retry(&pcpu->syncp, start));
++
++		*bytes += b;
++		*packets += p;
++	}
+ }
+Index: ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/stats.h
+===================================================================
+--- ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800.orig/drivers/net/ovpn/stats.h
++++ ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/stats.h
+@@ -11,10 +11,18 @@
+ #ifndef _NET_OVPN_OVPNSTATS_H_
+ #define _NET_OVPN_OVPNSTATS_H_
+ 
++#include <linux/percpu.h>
++#include <linux/u64_stats_sync.h>
++
+ /* one stat */
++struct ovpn_peer_stat_pcpu {
++	struct u64_stats_sync syncp;
++	u64 bytes;
++	u64 packets;
++};
++
+ struct ovpn_peer_stat {
+-	atomic64_t bytes;
+-	atomic64_t packets;
++	struct ovpn_peer_stat_pcpu __percpu *pcpu;
+ };
+ 
+ /* rx and tx stats combined */
+@@ -23,13 +31,21 @@ struct ovpn_peer_stats {
+ 	struct ovpn_peer_stat tx;
+ };
+ 
+-void ovpn_peer_stats_init(struct ovpn_peer_stats *ps);
++int ovpn_peer_stats_init(struct ovpn_peer_stats *ps);
++void ovpn_peer_stats_free(struct ovpn_peer_stats *ps);
++void ovpn_peer_stat_read(const struct ovpn_peer_stat *stat, u64 *bytes,
++			 u64 *packets);
+ 
+ static inline void ovpn_peer_stats_increment(struct ovpn_peer_stat *stat,
+ 					     const unsigned int n)
+ {
+-	atomic64_add(n, &stat->bytes);
+-	atomic64_inc(&stat->packets);
++	struct ovpn_peer_stat_pcpu *pcpu = get_cpu_ptr(stat->pcpu);
++
++	u64_stats_update_begin(&pcpu->syncp);
++	pcpu->bytes += n;
++	pcpu->packets++;
++	u64_stats_update_end(&pcpu->syncp);
++	put_cpu_ptr(stat->pcpu);
+ }
+ 
+ static inline void ovpn_peer_stats_increment_rx(struct ovpn_peer_stats *stats,

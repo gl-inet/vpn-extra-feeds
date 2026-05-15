@@ -1,0 +1,564 @@
+From f876f7b1662bee6a2e74030014ff30ca72675d79 Mon Sep 17 00:00:00 2001
+From: chenyk <chenyk@gl-inet.com>
+Date: Fri, 15 May 2026 14:15:51 +0800
+Subject: [PATCH 102/103] perf: N-work pool parallel decrypt and encrypt
+
+Implement per-peer decrypt_queue + decrypt_ctx[4] work pool for parallel
+decryption on WQ_UNBOUND workqueue. RX path (ovpn_recv) enqueues skb and
+round-robin schedules workers. Workers dequeue and decrypt in parallel.
+
+For TX, UDP uses encrypt_queue + encrypt_ctx[4] for parallel encryption.
+TCP uses synchronous encryption due to socket lock constraints.
+
+Add local_bh_disable/enable around gro_cells_receive to prevent
+NOHZ local_softirq_pending warnings from workqueue context.
+
+Defer ovpn_peer_put in workers to after loop completion to prevent
+deadlock with cancel_work_sync in peer release path.
+
+Signed-off-by: chenyk <chenyk@gl-inet.com>
+---
+ drivers/net/ovpn/io.c   | 273 +++++++++++++++++++++++++++-------------
+ drivers/net/ovpn/io.h   |   3 +
+ drivers/net/ovpn/peer.c |  62 ++++++++-
+ drivers/net/ovpn/peer.h |  19 +++
+ drivers/net/ovpn/skb.h  |   2 +
+ 5 files changed, 269 insertions(+), 90 deletions(-)
+
+diff --git a/drivers/net/ovpn/io.c b/drivers/net/ovpn/io.c
+index db43a1f..dd68726 100644
+--- a/drivers/net/ovpn/io.c
++++ b/drivers/net/ovpn/io.c
+@@ -17,6 +17,7 @@
+ #include "ovpnpriv.h"
+ #include "peer.h"
+ #include "io.h"
++#include "main.h"
+ #include "bind.h"
+ #include "crypto.h"
+ #include "crypto_aead.h"
+@@ -90,7 +91,14 @@ static void ovpn_netdev_write(struct ovpn_peer *peer, struct sk_buff *skb)
+ 
+ 	/* cause packet to be "received" by the interface */
+ 	pkt_len = skb->len;
++	/* napi_schedule (via gro_cells_receive) raises NET_RX_SOFTIRQ.
++	 * When called from a workqueue (process context), BH must be
++	 * disabled so the softirq is drained on re-enable rather than
++	 * left pending on a NOHZ CPU, preventing local_softirq_pending warnings.
++	 */
++	local_bh_disable();
+ 	ret = gro_cells_receive(&peer->ovpn->gro_cells, skb);
++	local_bh_enable();
+ 	if (likely(ret == NET_RX_SUCCESS)) {
+ 		/* update RX stats with the size of decrypted packet */
+ 		ovpn_peer_stats_increment_rx(&peer->vpn_stats, pkt_len);
+@@ -98,54 +106,9 @@ static void ovpn_netdev_write(struct ovpn_peer *peer, struct sk_buff *skb)
+ 	}
+ }
+ 
+-void ovpn_decrypt_post(void *data, int ret)
++void ovpn_deliver_skb(struct ovpn_peer *peer, struct sk_buff *skb)
+ {
+-	struct ovpn_crypto_key_slot *ks;
+-	unsigned int payload_offset = 0;
+-	struct sk_buff *skb = data;
+-	struct ovpn_socket *sock;
+-	struct ovpn_peer *peer;
+ 	__be16 proto;
+-	__be32 *pid;
+-
+-	/* crypto is happening asynchronously. this function will be called
+-	 * again later by the crypto callback with a proper return code
+-	 */
+-	if (unlikely(ret == -EINPROGRESS))
+-		return;
+-
+-	payload_offset = ovpn_skb_cb(skb)->payload_offset;
+-	ks = ovpn_skb_cb(skb)->ks;
+-	peer = ovpn_skb_cb(skb)->peer;
+-
+-	/* crypto is done, cleanup skb CB and its members */
+-	kfree(ovpn_skb_cb(skb)->crypto_tmp);
+-
+-	if (unlikely(ret < 0))
+-		goto drop;
+-
+-	/* PID sits after the op */
+-	pid = (__force __be32 *)(skb->data + OVPN_OPCODE_SIZE);
+-	ret = ovpn_pktid_recv(&ks->pid_recv, ntohl(*pid), 0);
+-	if (unlikely(ret < 0)) {
+-		net_err_ratelimited("%s: PKT ID RX error for peer %u: %d\n",
+-				    netdev_name(peer->ovpn->dev), peer->id,
+-				    ret);
+-		goto drop;
+-	}
+-
+-	/* keep track of last received authenticated packet for keepalive */
+-	WRITE_ONCE(peer->last_recv, ktime_get_real_seconds());
+-
+-	rcu_read_lock();
+-	sock = rcu_dereference(peer->sock);
+-	if (sock && sock->sk->sk_protocol == IPPROTO_UDP)
+-		/* check if this peer changed local or remote endpoint */
+-		ovpn_peer_endpoints_update(peer, skb);
+-	rcu_read_unlock();
+-
+-	/* point to encapsulated IP packet */
+-	__skb_pull(skb, payload_offset);
+ 
+ 	/* check if this is a valid datapacket that has to be delivered to the
+ 	 * ovpn interface
+@@ -191,41 +154,133 @@ void ovpn_decrypt_post(void *data, int ret)
+ 
+ 	ovpn_netdev_write(peer, skb);
+ 	/* skb is passed to upper layer - don't free it */
++	return;
++
++drop:
++	dev_dstats_rx_dropped(peer->ovpn->dev);
++	kfree_skb(skb);
++drop_nocount:
++	return;
++}
++
++/* New N-work pool decrypt post callback - simplified, direct delivery */
++void ovpn_decrypt_post(void *data, int ret)
++{
++	struct ovpn_crypto_key_slot *ks;
++	unsigned int payload_offset = 0;
++	struct sk_buff *skb = data;
++	struct ovpn_socket *sock;
++	struct ovpn_peer *peer;
++	__be32 *pid;
++
++	/* crypto is happening asynchronously. this function will be called
++	 * again later by the crypto callback with a proper return code
++	 */
++	if (unlikely(ret == -EINPROGRESS))
++		return;
++
++	payload_offset = ovpn_skb_cb(skb)->payload_offset;
++	ks = ovpn_skb_cb(skb)->ks;
++	peer = ovpn_skb_cb(skb)->peer;
++
++	/* crypto is done, cleanup skb CB and its members */
++	kmem_cache_free(ovpn_crypto_tmp_cache, ovpn_skb_cb(skb)->crypto_tmp);
++
++	if (unlikely(ret < 0))
++		goto drop;
++
++	/* PID sits after the op */
++	pid = (__force __be32 *)(skb->data + OVPN_OPCODE_SIZE);
++	ret = ovpn_pktid_recv(&ks->pid_recv, ntohl(*pid), 0);
++	if (unlikely(ret < 0)) {
++		net_err_ratelimited("%s: PKT ID RX error for peer %u: %d\n",
++				    netdev_name(peer->ovpn->dev), peer->id, ret);
++		goto drop;
++	}
++
++	/* keep track of last received authenticated packet for keepalive */
++	{
++		time64_t now = ktime_get_real_seconds();
++
++		if (unlikely(now != READ_ONCE(peer->last_recv)))
++			WRITE_ONCE(peer->last_recv, now);
++	}
++
++	rcu_read_lock();
++	sock = rcu_dereference(peer->sock);
++	if (sock && sock->sk->sk_protocol == IPPROTO_UDP)
++		ovpn_peer_endpoints_update(peer, skb);
++	rcu_read_unlock();
++
++	/* point to encapsulated IP packet */
++	__skb_pull(skb, payload_offset);
++
++	/* deliver the decrypted packet - ordering for TCP tunneled traffic
++	 * is handled by the upper layer TCP stack, not here
++	 */
++	ovpn_deliver_skb(peer, skb);
++	/* skb is passed to upper layer - don't free it */
+ 	skb = NULL;
+ drop:
+ 	if (unlikely(skb))
+ 		dev_dstats_rx_dropped(peer->ovpn->dev);
+ 	kfree_skb(skb);
+-drop_nocount:
+ 	if (likely(peer))
+ 		ovpn_peer_put(peer);
+ 	if (likely(ks))
+ 		ovpn_crypto_key_slot_put(ks);
+ }
+ 
+-/* RX path entry point: decrypt packet and forward it to the device */
+-void ovpn_recv(struct ovpn_peer *peer, struct sk_buff *skb)
++/* N-work pool decrypt worker - dequeues skbs and decrypts them */
++void ovpn_decrypt_worker(struct work_struct *work)
+ {
++	struct ovpn_decrypt_ctx *ctx = container_of(work, struct ovpn_decrypt_ctx, work);
++	struct ovpn_peer *peer = ctx->peer;
+ 	struct ovpn_crypto_key_slot *ks;
++	struct sk_buff *skb;
++	unsigned int drop_refs = 0;
+ 	u8 key_id;
+ 
+-	ovpn_peer_stats_increment_rx(&peer->link_stats, skb->len);
++	while ((skb = skb_dequeue(&peer->decrypt_queue)) != NULL) {
++		key_id = ovpn_key_id_from_skb(skb);
++		ks = ovpn_crypto_key_id_to_slot(&peer->crypto, key_id);
++		if (unlikely(!ks)) {
++			net_info_ratelimited("%s: no key found for key_id %u for peer %u\n",
++					    netdev_name(peer->ovpn->dev), key_id,
++					    peer->id);
++			dev_dstats_rx_dropped(peer->ovpn->dev);
++			kfree_skb(skb);
++			/* Defer peer_put to avoid triggering peer release
++			 * (which calls cancel_work_sync) from within this worker
++			 */
++			drop_refs++;
++			continue;
++		}
+ 
+-	/* get the key slot matching the key ID in the received packet */
+-	key_id = ovpn_key_id_from_skb(skb);
+-	ks = ovpn_crypto_key_id_to_slot(&peer->crypto, key_id);
+-	if (unlikely(!ks)) {
+-		net_info_ratelimited("%s: no available key for peer %u, key-id: %u\n",
+-				     netdev_name(peer->ovpn->dev), peer->id,
+-				     key_id);
+-		dev_dstats_rx_dropped(peer->ovpn->dev);
+-		kfree_skb(skb);
+-		ovpn_peer_put(peer);
+-		return;
++		memset(ovpn_skb_cb(skb), 0, sizeof(struct ovpn_cb));
++		ovpn_decrypt_post(skb, ovpn_aead_decrypt(peer, ks, skb));
+ 	}
+ 
+-	memset(ovpn_skb_cb(skb), 0, sizeof(struct ovpn_cb));
+-	ovpn_decrypt_post(skb, ovpn_aead_decrypt(peer, ks, skb));
++	/* Release deferred peer references after the loop completes,
++	 * so cancel_work_sync in peer_release won't deadlock
++	 */
++	while (drop_refs--)
++		ovpn_peer_put(peer);
++}
++
++/* RX path entry point: enqueue skb and schedule decrypt worker */
++void ovpn_recv(struct ovpn_peer *peer, struct sk_buff *skb)
++{
++	int idx;
++
++	ovpn_peer_stats_increment_rx(&peer->link_stats, skb->len);
++
++	/* Enqueue skb to peer's decrypt queue */
++	skb_queue_tail(&peer->decrypt_queue, skb);
++
++	/* Round-robin select a work context and queue it */
++	idx = atomic_inc_return(&peer->next_decrypt_idx) % OVPN_MAX_PARALLEL;
++	queue_work(ovpn_crypto_wq, &peer->decrypt_ctx[idx].work);
+ }
+ 
+ void ovpn_encrypt_post(void *data, int ret)
+@@ -246,7 +301,7 @@ void ovpn_encrypt_post(void *data, int ret)
+ 	peer = ovpn_skb_cb(skb)->peer;
+ 
+ 	/* crypto is done, cleanup skb CB and its members */
+-	kfree(ovpn_skb_cb(skb)->crypto_tmp);
++	kmem_cache_free(ovpn_crypto_tmp_cache, ovpn_skb_cb(skb)->crypto_tmp);
+ 
+ 	if (unlikely(ret == -ERANGE)) {
+ 		/* we ran out of IVs and we must kill the key as it can't be
+@@ -287,7 +342,12 @@ void ovpn_encrypt_post(void *data, int ret)
+ 
+ 	ovpn_peer_stats_increment_tx(&peer->link_stats, orig_len);
+ 	/* keep track of last sent packet for keepalive */
+-	WRITE_ONCE(peer->last_sent, ktime_get_real_seconds());
++	{
++		time64_t now = ktime_get_real_seconds();
++
++		if (unlikely(now != READ_ONCE(peer->last_sent)))
++			WRITE_ONCE(peer->last_sent, now);
++	}
+ 	/* skb passed down the stack - don't free it */
+ 	skb = NULL;
+ err_unlock:
+@@ -302,42 +362,83 @@ err:
+ 	kfree_skb(skb);
+ }
+ 
+-static bool ovpn_encrypt_one(struct ovpn_peer *peer, struct sk_buff *skb)
++/* TX N-work pool encrypt worker */
++void ovpn_encrypt_worker(struct work_struct *work)
+ {
++	struct ovpn_encrypt_ctx *ctx = container_of(work, struct ovpn_encrypt_ctx, work);
++	struct ovpn_peer *peer = ctx->peer;
+ 	struct ovpn_crypto_key_slot *ks;
++	struct sk_buff *skb;
++	unsigned int drop_refs = 0;
++
++	while ((skb = skb_dequeue(&peer->encrypt_queue)) != NULL) {
++		ks = ovpn_crypto_key_slot_primary(&peer->crypto);
++		if (unlikely(!ks)) {
++			dev_dstats_tx_dropped(peer->ovpn->dev);
++			kfree_skb(skb);
++			drop_refs++;
++			continue;
++		}
+ 
+-	/* get primary key to be used for encrypting data */
+-	ks = ovpn_crypto_key_slot_primary(&peer->crypto);
+-	if (unlikely(!ks))
+-		return false;
+-
+-	/* take a reference to the peer because the crypto code may run async.
+-	 * ovpn_encrypt_post() will release it upon completion
+-	 */
+-	if (unlikely(!ovpn_peer_hold(peer))) {
+-		DEBUG_NET_WARN_ON_ONCE(1);
+-		ovpn_crypto_key_slot_put(ks);
+-		return false;
++		memset(ovpn_skb_cb(skb), 0, sizeof(struct ovpn_cb));
++		ovpn_encrypt_post(skb, ovpn_aead_encrypt(peer, ks, skb));
+ 	}
+ 
+-	memset(ovpn_skb_cb(skb), 0, sizeof(struct ovpn_cb));
+-	ovpn_encrypt_post(skb, ovpn_aead_encrypt(peer, ks, skb));
+-	return true;
++	while (drop_refs--)
++		ovpn_peer_put(peer);
+ }
+ 
+ /* send skb to connected peer, if any */
+ static void ovpn_send(struct ovpn_priv *ovpn, struct sk_buff *skb,
+ 		      struct ovpn_peer *peer)
+ {
++	struct ovpn_crypto_key_slot *ks;
++	struct ovpn_socket *sock;
+ 	struct sk_buff *curr, *next;
++	bool use_wq;
++	int idx;
+ 
+-	/* this might be a GSO-segmented skb list: process each skb
+-	 * independently
++	/* TCP transport cannot use workqueue for encryption because
++	 * ovpn_tcp_send_skb requires socket lock which has ordering
++	 * constraints with strparser's softirq context.
+ 	 */
++	rcu_read_lock();
++	sock = rcu_dereference(peer->sock);
++	use_wq = sock && sock->sk->sk_protocol == IPPROTO_UDP;
++	rcu_read_unlock();
++
+ 	skb_list_walk_safe(skb, curr, next) {
+-		if (unlikely(!ovpn_encrypt_one(peer, curr))) {
+-			dev_dstats_tx_dropped(ovpn->dev);
+-			kfree_skb(curr);
++		skb_mark_not_on_list(curr);
++
++		if (use_wq) {
++			/* UDP: parallel encryption via workqueue */
++			if (unlikely(!ovpn_peer_hold(peer))) {
++				dev_dstats_tx_dropped(ovpn->dev);
++				kfree_skb(curr);
++				continue;
++			}
++
++			skb_queue_tail(&peer->encrypt_queue, curr);
++			idx = atomic_inc_return(&peer->next_encrypt_idx) % OVPN_MAX_PARALLEL;
++			queue_work(ovpn_crypto_wq, &peer->encrypt_ctx[idx].work);
++		} else {
++			/* TCP: synchronous encryption */
++			ks = ovpn_crypto_key_slot_primary(&peer->crypto);
++			if (unlikely(!ks)) {
++				dev_dstats_tx_dropped(ovpn->dev);
++				kfree_skb(curr);
++				continue;
++			}
++
++			if (unlikely(!ovpn_peer_hold(peer))) {
++				ovpn_crypto_key_slot_put(ks);
++				dev_dstats_tx_dropped(ovpn->dev);
++				kfree_skb(curr);
++				continue;
++			}
++
++			memset(ovpn_skb_cb(curr), 0, sizeof(struct ovpn_cb));
++			ovpn_encrypt_post(curr, ovpn_aead_encrypt(peer, ks, curr));
+ 		}
+ 	}
+ 
+diff --git a/drivers/net/ovpn/io.h b/drivers/net/ovpn/io.h
+index db9e10f..0339f27 100644
+--- a/drivers/net/ovpn/io.h
++++ b/drivers/net/ovpn/io.h
+@@ -30,5 +30,8 @@ void ovpn_xmit_special(struct ovpn_peer *peer, const void *data,
+ 
+ void ovpn_encrypt_post(void *data, int ret);
+ void ovpn_decrypt_post(void *data, int ret);
++void ovpn_decrypt_worker(struct work_struct *work);
++void ovpn_deliver_skb(struct ovpn_peer *peer, struct sk_buff *skb);
++void ovpn_encrypt_worker(struct work_struct *work);
+ 
+ #endif /* _NET_OVPN_OVPN_H_ */
+diff --git a/drivers/net/ovpn/peer.c b/drivers/net/ovpn/peer.c
+index 8ff61fe..d80d2b3 100644
+--- a/drivers/net/ovpn/peer.c
++++ b/drivers/net/ovpn/peer.c
+@@ -92,6 +92,7 @@ static void ovpn_peer_keepalive_send(struct work_struct *work)
+ struct ovpn_peer *ovpn_peer_new(struct ovpn_priv *ovpn, u32 id)
+ {
+ 	struct ovpn_peer *peer;
++	int i;
+ 	int ret;
+ 
+ 	/* alloc and init peer object */
+@@ -113,22 +114,54 @@ struct ovpn_peer *ovpn_peer_new(struct ovpn_priv *ovpn, u32 id)
+ 	ovpn_crypto_state_init(&peer->crypto);
+ 	spin_lock_init(&peer->lock);
+ 	kref_init(&peer->refcount);
+-	ovpn_peer_stats_init(&peer->vpn_stats);
+-	ovpn_peer_stats_init(&peer->link_stats);
++
++	ret = ovpn_peer_stats_init(&peer->vpn_stats);
++	if (ret < 0)
++		goto err_free;
++
++	ret = ovpn_peer_stats_init(&peer->link_stats);
++	if (ret < 0)
++		goto err_free_vpn_stats;
++
+ 	INIT_WORK(&peer->keepalive_work, ovpn_peer_keepalive_send);
+ 
++	/* Initialize N-work pool for parallel decryption */
++	skb_queue_head_init(&peer->decrypt_queue);
++	for (i = 0; i < OVPN_MAX_PARALLEL; i++) {
++		INIT_WORK(&peer->decrypt_ctx[i].work, ovpn_decrypt_worker);
++		peer->decrypt_ctx[i].peer = peer;
++	}
++	atomic_set(&peer->next_decrypt_idx, 0);
++	atomic_set(&peer->tcp_next_deliver, 0);
++	atomic_set(&peer->tcp_next_assign, 0);
++
++	/* Initialize N-work pool for parallel encryption */
++	skb_queue_head_init(&peer->encrypt_queue);
++	for (i = 0; i < OVPN_MAX_PARALLEL; i++) {
++		INIT_WORK(&peer->encrypt_ctx[i].work, ovpn_encrypt_worker);
++		peer->encrypt_ctx[i].peer = peer;
++	}
++	atomic_set(&peer->next_encrypt_idx, 0);
++
+ 	ret = dst_cache_init(&peer->dst_cache, GFP_KERNEL);
+ 	if (ret < 0) {
+ 		netdev_err(ovpn->dev,
+ 			   "cannot initialize dst cache for peer %u\n",
+ 			   peer->id);
+-		kfree(peer);
+-		return ERR_PTR(ret);
++		goto err_free_link_stats;
+ 	}
+ 
+ 	netdev_hold(ovpn->dev, &peer->dev_tracker, GFP_KERNEL);
+ 
+ 	return peer;
++
++err_free_link_stats:
++	ovpn_peer_stats_free(&peer->link_stats);
++err_free_vpn_stats:
++	ovpn_peer_stats_free(&peer->vpn_stats);
++err_free:
++	kfree(peer);
++	return ERR_PTR(ret);
+ }
+ 
+ /**
+@@ -356,6 +389,27 @@ static void ovpn_peer_release_rcu(struct rcu_head *head)
+  */
+ void ovpn_peer_release(struct ovpn_peer *peer)
+ {
++	struct sk_buff *skb;
++	int i;
++
++	/* Wait for any in-flight decrypt workers to complete */
++	for (i = 0; i < OVPN_MAX_PARALLEL; i++)
++		cancel_work_sync(&peer->decrypt_ctx[i].work);
++
++	/* Free any remaining skbs in the decrypt queue */
++	while ((skb = skb_dequeue(&peer->decrypt_queue)))
++		kfree_skb(skb);
++
++	/* Wait for any in-flight encrypt workers to complete */
++	for (i = 0; i < OVPN_MAX_PARALLEL; i++)
++		cancel_work_sync(&peer->encrypt_ctx[i].work);
++
++	/* Free any remaining skbs in the encrypt queue */
++	while ((skb = skb_dequeue(&peer->encrypt_queue)))
++		kfree_skb(skb);
++
++	ovpn_peer_stats_free(&peer->vpn_stats);
++	ovpn_peer_stats_free(&peer->link_stats);
+ 	ovpn_crypto_state_release(&peer->crypto);
+ 	spin_lock_bh(&peer->lock);
+ 	ovpn_bind_reset(peer, NULL);
+diff --git a/drivers/net/ovpn/peer.h b/drivers/net/ovpn/peer.h
+index 3284015..a01d948 100644
+--- a/drivers/net/ovpn/peer.h
++++ b/drivers/net/ovpn/peer.h
+@@ -14,9 +14,20 @@
+ #include <net/strparser.h>
+ 
+ #include "crypto.h"
++#include "main.h"
+ #include "socket.h"
+ #include "stats.h"
+ 
++struct ovpn_encrypt_ctx {
++	struct work_struct work;
++	struct ovpn_peer *peer;
++};
++
++struct ovpn_decrypt_ctx {
++	struct work_struct work;
++	struct ovpn_peer *peer;
++};
++
+ /**
+  * struct ovpn_peer - the main remote peer object
+  * @ovpn: main openvpn instance this peer belongs to
+@@ -114,6 +125,14 @@ struct ovpn_peer {
+ 	struct rcu_head rcu;
+ 	struct llist_node release_entry;
+ 	struct work_struct keepalive_work;
++	struct sk_buff_head decrypt_queue;
++	struct ovpn_decrypt_ctx decrypt_ctx[OVPN_MAX_PARALLEL];
++	atomic_t next_decrypt_idx;
++	atomic_t tcp_next_deliver;
++	atomic_t tcp_next_assign;
++	struct sk_buff_head encrypt_queue;
++	struct ovpn_encrypt_ctx encrypt_ctx[OVPN_MAX_PARALLEL];
++	atomic_t next_encrypt_idx;
+ };
+ 
+ /**
+diff --git a/drivers/net/ovpn/skb.h b/drivers/net/ovpn/skb.h
+index 4fb7ea0..a875abe 100644
+--- a/drivers/net/ovpn/skb.h
++++ b/drivers/net/ovpn/skb.h
+@@ -25,6 +25,7 @@
+  * @crypto_tmp: pointer to temporary memory used for crypto operations
+  *		containing the IV, the scatter gather list and the aead request
+  * @payload_offset: offset in the skb where the payload starts
++ * @tcp_seq: delivery sequence assigned to TCP packets
+  * @nosignal: whether this skb should be sent with the MSG_NOSIGNAL flag (TCP)
+  */
+ struct ovpn_cb {
+@@ -32,6 +33,7 @@ struct ovpn_cb {
+ 	struct ovpn_crypto_key_slot *ks;
+ 	void *crypto_tmp;
+ 	unsigned int payload_offset;
++	u32 tcp_seq;
+ 	bool nosignal;
+ };
+ 
+-- 
+2.43.0
+

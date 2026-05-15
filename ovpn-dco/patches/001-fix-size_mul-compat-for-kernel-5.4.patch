@@ -1,5 +1,7 @@
---- a/compat-include/linux/overflow.h
-+++ b/compat-include/linux/overflow.h
+Index: ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/compat-include/linux/overflow.h
+===================================================================
+--- ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800.orig/compat-include/linux/overflow.h
++++ ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/compat-include/linux/overflow.h
 @@ -4,7 +4,7 @@
  #include <linux/version.h>
  #include_next <linux/overflow.h>
@@ -9,7 +11,7 @@
  
  static inline size_t __must_check ovpn_size_mul(size_t factor1, size_t factor2)
  {
-@@ -17,7 +17,7 @@ static inline size_t __must_check ovpn_size_mul(size_t factor1, size_t factor2)
+@@ -18,6 +18,6 @@ static inline size_t __must_check ovpn_s
  
  #define size_mul ovpn_size_mul
  

@@ -1,0 +1,161 @@
+From 4abafd026e634fe319221619b80c49f3f7d4f472 Mon Sep 17 00:00:00 2001
+From: chenyk <chenyk@gl-inet.com>
+Date: Fri, 15 May 2026 14:15:50 +0800
+Subject: [PATCH 101/103] perf: add kmem_cache for crypto tmp buffers and
+ global WQ
+
+Create a global WQ_UNBOUND|WQ_HIGHPRI workqueue (ovpn_crypto_wq) and
+a kmem_cache (ovpn_crypto_tmp, 2048 bytes, SLAB_HWCACHE_ALIGN) for
+crypto temporary buffers. Replace kmalloc/kfree with kmem_cache_alloc/free
+in aead encrypt/decrypt paths.
+
+Signed-off-by: chenyk <chenyk@gl-inet.com>
+---
+ drivers/net/ovpn/crypto_aead.c | 16 ++++++++++++----
+ drivers/net/ovpn/main.c        | 28 +++++++++++++++++++++++++---
+ drivers/net/ovpn/main.h        |  9 +++++++++
+ 3 files changed, 46 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/net/ovpn/crypto_aead.c b/drivers/net/ovpn/crypto_aead.c
+index 4cf1175..845cef4 100644
+--- a/drivers/net/ovpn/crypto_aead.c
++++ b/drivers/net/ovpn/crypto_aead.c
+@@ -148,6 +148,7 @@ int ovpn_aead_encrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
+ 	struct aead_request *req;
+ 	struct sk_buff *trailer;
+ 	struct scatterlist *sg;
++	unsigned int tmp_size;
+ 	int nfrags, ret;
+ 	u32 pktid, op;
+ 	void *tmp;
+@@ -177,9 +178,12 @@ int ovpn_aead_encrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
+ 	if (unlikely(nfrags + 2 > (MAX_SKB_FRAGS + 2)))
+ 		return -ENOSPC;
+ 
++	tmp_size = ovpn_aead_crypto_tmp_size(ks->encrypt, nfrags);
++	if (unlikely(tmp_size > OVPN_CRYPTO_TMP_CACHE_SIZE))
++		return -ENOSPC;
++
+ 	/* allocate temporary memory for iv, sg and req */
+-	tmp = kmalloc(ovpn_aead_crypto_tmp_size(ks->encrypt, nfrags),
+-		      GFP_ATOMIC);
++	tmp = kmem_cache_alloc(ovpn_crypto_tmp_cache, GFP_ATOMIC);
+ 	if (unlikely(!tmp))
+ 		return -ENOMEM;
+ 
+@@ -261,6 +265,7 @@ int ovpn_aead_decrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
+ 	const unsigned int tag_size = crypto_aead_authsize(ks->decrypt);
+ 	int ret, payload_len, nfrags;
+ 	unsigned int payload_offset;
++	unsigned int tmp_size;
+ 	struct aead_request *req;
+ 	struct sk_buff *trailer;
+ 	struct scatterlist *sg;
+@@ -293,9 +298,12 @@ int ovpn_aead_decrypt(struct ovpn_peer *peer, struct ovpn_crypto_key_slot *ks,
+ 	if (unlikely(nfrags + 2 > (MAX_SKB_FRAGS + 2)))
+ 		return -ENOSPC;
+ 
++	tmp_size = ovpn_aead_crypto_tmp_size(ks->decrypt, nfrags);
++	if (unlikely(tmp_size > OVPN_CRYPTO_TMP_CACHE_SIZE))
++		return -ENOSPC;
++
+ 	/* allocate temporary memory for iv, sg and req */
+-	tmp = kmalloc(ovpn_aead_crypto_tmp_size(ks->decrypt, nfrags),
+-		      GFP_ATOMIC);
++	tmp = kmem_cache_alloc(ovpn_crypto_tmp_cache, GFP_ATOMIC);
+ 	if (unlikely(!tmp))
+ 		return -ENOMEM;
+ 
+diff --git a/drivers/net/ovpn/main.c b/drivers/net/ovpn/main.c
+index d6564ee..c06a178 100644
+--- a/drivers/net/ovpn/main.c
++++ b/drivers/net/ovpn/main.c
+@@ -18,14 +18,17 @@
+ #include <uapi/linux/if_arp.h>
+ 
+ #include "ovpnpriv.h"
++#include "io.h"
+ #include "main.h"
+ #include "netlink.h"
+-#include "io.h"
+ #include "peer.h"
+ #include "proto.h"
+ #include "tcp.h"
+ #include "udp.h"
+ 
++struct kmem_cache *ovpn_crypto_tmp_cache __read_mostly;
++struct workqueue_struct *ovpn_crypto_wq __read_mostly;
++
+ static void ovpn_priv_free(struct net_device *net)
+ {
+ 	struct ovpn_priv *ovpn = netdev_priv(net);
+@@ -282,11 +285,24 @@ static struct rtnl_link_ops ovpn_link_ops = {
+ 
+ static int __init ovpn_init(void)
+ {
+-	int err = rtnl_link_register(&ovpn_link_ops);
++	int err;
++
++	ovpn_crypto_tmp_cache = kmem_cache_create("ovpn_crypto_tmp", 2048, 0,
++					      SLAB_HWCACHE_ALIGN, NULL);
++	if (!ovpn_crypto_tmp_cache)
++		return -ENOMEM;
++
++	ovpn_crypto_wq = alloc_workqueue("ovpn_crypto",
++					 WQ_UNBOUND | WQ_HIGHPRI, 0);
++	if (!ovpn_crypto_wq) {
++		err = -ENOMEM;
++		goto destroy_crypto_tmp_cache;
++	}
+ 
++	err = rtnl_link_register(&ovpn_link_ops);
+ 	if (err) {
+ 		pr_err("ovpn: can't register rtnl link ops: %d\n", err);
+-		return err;
++		goto destroy_wq;
+ 	}
+ 
+ 	err = ovpn_nl_register();
+@@ -301,6 +317,10 @@ static int __init ovpn_init(void)
+ 
+ unreg_rtnl:
+ 	rtnl_link_unregister(&ovpn_link_ops);
++destroy_wq:
++	destroy_workqueue(ovpn_crypto_wq);
++destroy_crypto_tmp_cache:
++	kmem_cache_destroy(ovpn_crypto_tmp_cache);
+ 	return err;
+ }
+ 
+@@ -308,6 +328,8 @@ static __exit void ovpn_cleanup(void)
+ {
+ 	ovpn_nl_unregister();
+ 	rtnl_link_unregister(&ovpn_link_ops);
++	destroy_workqueue(ovpn_crypto_wq);
++	kmem_cache_destroy(ovpn_crypto_tmp_cache);
+ 
+ 	rcu_barrier();
+ }
+diff --git a/drivers/net/ovpn/main.h b/drivers/net/ovpn/main.h
+index 017cd01..57b4315 100644
+--- a/drivers/net/ovpn/main.h
++++ b/drivers/net/ovpn/main.h
+@@ -9,6 +9,15 @@
+ #ifndef _NET_OVPN_MAIN_H_
+ #define _NET_OVPN_MAIN_H_
+ 
++#include <linux/slab.h>
++#include <linux/workqueue.h>
++
++#define OVPN_CRYPTO_TMP_CACHE_SIZE 2048
++#define OVPN_MAX_PARALLEL 4
++
++extern struct kmem_cache *ovpn_crypto_tmp_cache;
++extern struct workqueue_struct *ovpn_crypto_wq;
++
+ bool ovpn_dev_is_valid(const struct net_device *dev);
+ 
+ #endif /* _NET_OVPN_MAIN_H_ */
+-- 
+2.43.0
+
