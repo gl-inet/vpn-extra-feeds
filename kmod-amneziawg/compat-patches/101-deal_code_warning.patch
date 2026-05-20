@@ -52,3 +52,43 @@ Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/crypto/zinc/selftest/
  		if (memcmp(hash, blake2s_testvecs[i], BLAKE2S_HASH_SIZE)) {
  			pr_err("blake2s unkeyed self-test %zu: FAIL\n", i + i);
  			success = false;
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/receive.c
+===================================================================
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/receive.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/receive.c
+@@ -535,10 +535,13 @@ void wg_packet_decrypt_worker(struct wor
+ 				PACKET_STATE_CRYPTED : PACKET_STATE_DEAD;
+ 		wg_queue_enqueue_per_peer_rx(skb, state);
+ #ifdef COMPAT_CRYPTO_IS_ZINC
+-		simd_relax(&simd_context);
+-#endif
++		if( simd_relax(&simd_context) ||
++				(!(simd_context & HAVE_SIMD_IN_USE) && need_resched()))
++			cond_resched();
++#else
+ 		if (need_resched())
+ 			cond_resched();
++#endif
+ 	}
+ 
+ #ifdef COMPAT_CRYPTO_IS_ZINC
+Index: amneziawg-linux-kernel-module-amneziawg-ac946a9/src/send.c
+===================================================================
+--- amneziawg-linux-kernel-module-amneziawg-ac946a9.orig/src/send.c
++++ amneziawg-linux-kernel-module-amneziawg-ac946a9/src/send.c
+@@ -368,10 +368,13 @@ void wg_packet_encrypt_worker(struct wor
+ 		wg_queue_enqueue_per_peer_tx(first, state);
+ 
+ #ifdef COMPAT_CRYPTO_IS_ZINC
+-		simd_relax(&simd_context);
+-#endif
++		if( simd_relax(&simd_context) ||
++				(!(simd_context & HAVE_SIMD_IN_USE) && need_resched()))
++			cond_resched();
++#else
+ 		if (need_resched())
+ 			cond_resched();
++#endif
+ 	}
+ #ifdef COMPAT_CRYPTO_IS_ZINC
+ 	simd_put(&simd_context);
