@@ -1,0 +1,325 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: chenyk <chenyk@gl-inet.com>
+Date: Fri, 15 May 2026 17:00:00 +0800
+Subject: [PATCH 104/105] perf: reduce ovpn hot-path locking and copies
+
+Reduce hot-path contention in the ovpn-dco data path:
+
+* add per-worker queues to encrypt/decrypt ctx for TCP parallel paths
+* UDP RX/TX keeps using shared queues for natural work-stealing balance
+* decrypt worker: drain per-worker queue first, then shared queue
+* encrypt worker: drain per-worker queue first, then shared queue
+* skip UDP endpoint lock/update when the peer endpoint is unchanged
+* reuse complete TCP strparser skbs when they are linear and unshared
+* clear crypto_tmp on pre-submit AEAD errors to keep post cleanup safe
+
+Signed-off-by: chenyk <chenyk@gl-inet.com>
+---
+--- a/drivers/net/ovpn/crypto_aead.c	2026-05-20 14:21:46.363784327 +0800
++++ b/drivers/net/ovpn/crypto_aead.c	2026-05-20 14:20:58.460016883 +0800
+@@ -134,6 +134,17 @@
+ 			     __alignof__(struct scatterlist));
+ }
+ 
++static void ovpn_aead_crypto_tmp_free(struct sk_buff *skb)
++{
++	void *tmp = ovpn_skb_cb(skb)->crypto_tmp;
++
++	if (!tmp)
++		return;
++
++	kmem_cache_free(ovpn_crypto_tmp_cache, tmp);
++	ovpn_skb_cb(skb)->crypto_tmp = NULL;
++}
++
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
+ static inline void ovpn_encrypt_post_compl(struct crypto_async_request *req, int ret)
+ {
+@@ -205,7 +216,7 @@
+ 	if (unlikely(ret < 0)) {
+ 		netdev_err(peer->ovpn->dev,
+ 			   "encrypt: cannot map skb to sg: %d\n", ret);
+-		return ret;
++		goto err_free_tmp;
+ 	}
+ 
+ 	/* append auth_tag onto scatterlist */
+@@ -217,7 +228,7 @@
+ 	 */
+ 	ret = ovpn_pktid_xmit_next(&ks->pid_xmit, &pktid);
+ 	if (unlikely(ret < 0))
+-		return ret;
++		goto err_free_tmp;
+ 
+ 	/* concat 4 bytes packet id and 8 bytes nonce tail into 12 bytes
+ 	 * nonce
+@@ -249,7 +260,12 @@
+ 	aead_request_set_ad(req, OVPN_AAD_SIZE);
+ 
+ 	/* encrypt it */
++	/* encrypt it */
+ 	return crypto_aead_encrypt(req);
++
++err_free_tmp:
++	ovpn_aead_crypto_tmp_free(skb);
++	return ret;
+ }
+ 
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 3, 0)
+@@ -328,7 +344,7 @@
+ 	if (unlikely(ret < 0)) {
+ 		netdev_err(peer->ovpn->dev,
+ 			   "decrypt: cannot map skb to sg: %d\n", ret);
+-		return ret;
++		goto err_free_tmp;
+ 	}
+ 
+ 	/* append auth_tag onto scatterlist */
+@@ -351,7 +367,12 @@
+ 	aead_request_set_ad(req, OVPN_AAD_SIZE);
+ 
+ 	/* decrypt it */
++	/* decrypt it */
+ 	return crypto_aead_decrypt(req);
++
++err_free_tmp:
++	ovpn_aead_crypto_tmp_free(skb);
++	return ret;
+ }
+ 
+ /* Initialize a struct crypto_aead object */
+--- a/drivers/net/ovpn/io.c	2026-05-20 14:21:46.367136580 +0800
++++ b/drivers/net/ovpn/io.c	2026-05-20 14:20:58.462275956 +0800
+@@ -55,6 +55,32 @@
+ 	return !memcmp(skb->data, ovpn_keepalive_message, OVPN_KEEPALIVE_SIZE);
+ }
+ 
++static bool ovpn_udp_endpoint_update_needed(struct ovpn_peer *peer,
++					    struct sk_buff *skb)
++{
++	struct in6_addr local6;
++	struct ovpn_bind *bind;
++
++	bind = rcu_dereference(peer->bind);
++	if (unlikely(!bind))
++		return false;
++
++	if (unlikely(!ovpn_bind_skb_src_match(bind, skb)))
++		return true;
++
++	switch (skb->protocol) {
++	case htons(ETH_P_IP):
++		return unlikely(READ_ONCE(bind->local.ipv4.s_addr) !=
++				ip_hdr(skb)->daddr);
++	case htons(ETH_P_IPV6):
++		local6 = READ_ONCE(bind->local.ipv6);
++		return unlikely(!ipv6_addr_equal(&local6,
++						 &ipv6_hdr(skb)->daddr));
++	default:
++		return false;
++	}
++}
++
+ /* Called after decrypt to write the IP packet to the device.
+  * This method is expected to manage/free the skb.
+  */
+@@ -184,7 +210,11 @@
+ 	peer = ovpn_skb_cb(skb)->peer;
+ 
+ 	/* crypto is done, cleanup skb CB and its members */
+-	kmem_cache_free(ovpn_crypto_tmp_cache, ovpn_skb_cb(skb)->crypto_tmp);
++	if (ovpn_skb_cb(skb)->crypto_tmp) {
++		kmem_cache_free(ovpn_crypto_tmp_cache,
++				ovpn_skb_cb(skb)->crypto_tmp);
++		ovpn_skb_cb(skb)->crypto_tmp = NULL;
++	}
+ 
+ 	if (unlikely(ret < 0))
+ 		goto drop;
+@@ -208,7 +238,8 @@
+ 
+ 	rcu_read_lock();
+ 	sock = rcu_dereference(peer->sock);
+-	if (sock && sock->sk->sk_protocol == IPPROTO_UDP)
++	if (sock && sock->sk->sk_protocol == IPPROTO_UDP &&
++	    ovpn_udp_endpoint_update_needed(peer, skb))
+ 		ovpn_peer_endpoints_update(peer, skb);
+ 	rcu_read_unlock();
+ 
+@@ -241,7 +272,16 @@
+ 	unsigned int drop_refs = 0;
+ 	u8 key_id;
+ 
+-	while ((skb = skb_dequeue(&peer->decrypt_queue)) != NULL) {
++	/* Drain per-worker queue first (used by TCP path in future patches),
++	 * then fall back to shared queue (used by UDP path for work-stealing).
++	 */
++	for (;;) {
++		skb = skb_dequeue(&ctx->queue);
++		if (!skb)
++			skb = skb_dequeue(&peer->decrypt_queue);
++		if (!skb)
++			break;
++
+ 		key_id = ovpn_key_id_from_skb(skb);
+ 		ks = ovpn_crypto_key_id_to_slot(&peer->crypto, key_id);
+ 		if (unlikely(!ks)) {
+@@ -271,7 +311,7 @@
+ /* RX path entry point: enqueue skb and schedule decrypt worker */
+ void ovpn_recv(struct ovpn_peer *peer, struct sk_buff *skb)
+ {
+-	int idx;
++	unsigned int idx;
+ 
+ 	ovpn_peer_stats_increment_rx(&peer->link_stats, skb->len);
+ 
+@@ -279,7 +319,8 @@
+ 	skb_queue_tail(&peer->decrypt_queue, skb);
+ 
+ 	/* Round-robin select a work context and queue it */
+-	idx = atomic_inc_return(&peer->next_decrypt_idx) % OVPN_MAX_PARALLEL;
++	idx = (unsigned int)atomic_inc_return(&peer->next_decrypt_idx);
++	idx %= OVPN_MAX_PARALLEL;
+ 	queue_work(ovpn_crypto_wq, &peer->decrypt_ctx[idx].work);
+ }
+ 
+@@ -301,7 +342,11 @@
+ 	peer = ovpn_skb_cb(skb)->peer;
+ 
+ 	/* crypto is done, cleanup skb CB and its members */
+-	kmem_cache_free(ovpn_crypto_tmp_cache, ovpn_skb_cb(skb)->crypto_tmp);
++	if (ovpn_skb_cb(skb)->crypto_tmp) {
++		kmem_cache_free(ovpn_crypto_tmp_cache,
++				ovpn_skb_cb(skb)->crypto_tmp);
++		ovpn_skb_cb(skb)->crypto_tmp = NULL;
++	}
+ 
+ 	if (unlikely(ret == -ERANGE)) {
+ 		/* we ran out of IVs and we must kill the key as it can't be
+@@ -371,7 +416,16 @@
+ 	struct sk_buff *skb;
+ 	unsigned int drop_refs = 0;
+ 
+-	while ((skb = skb_dequeue(&peer->encrypt_queue)) != NULL) {
++	/* Drain per-worker queue first (used by TCP parallel path),
++	 * then fall back to shared queue (used by UDP for work-stealing).
++	 */
++	for (;;) {
++		skb = skb_dequeue(&ctx->queue);
++		if (!skb)
++			skb = skb_dequeue(&peer->encrypt_queue);
++		if (!skb)
++			break;
++
+ 		ks = ovpn_crypto_key_slot_primary(&peer->crypto);
+ 		if (unlikely(!ks)) {
+ 			dev_dstats_tx_dropped(peer->ovpn->dev);
+@@ -395,8 +449,8 @@
+ 	struct ovpn_crypto_key_slot *ks;
+ 	struct ovpn_socket *sock;
+ 	struct sk_buff *curr, *next;
++	unsigned int idx;
+ 	bool use_wq;
+-	int idx;
+ 
+ 	/* TCP transport cannot use workqueue for encryption because
+ 	 * ovpn_tcp_send_skb requires socket lock which has ordering
+@@ -418,8 +472,9 @@
+ 				continue;
+ 			}
+ 
++			idx = (unsigned int)atomic_inc_return(&peer->next_encrypt_idx);
++			idx %= OVPN_MAX_PARALLEL;
+ 			skb_queue_tail(&peer->encrypt_queue, curr);
+-			idx = atomic_inc_return(&peer->next_encrypt_idx) % OVPN_MAX_PARALLEL;
+ 			queue_work(ovpn_crypto_wq, &peer->encrypt_ctx[idx].work);
+ 		} else {
+ 			/* TCP: synchronous encryption */
+--- a/drivers/net/ovpn/peer.c	2026-05-20 14:21:46.369744519 +0800
++++ b/drivers/net/ovpn/peer.c	2026-05-20 14:20:58.464441830 +0800
+@@ -129,6 +129,7 @@
+ 	skb_queue_head_init(&peer->decrypt_queue);
+ 	for (i = 0; i < OVPN_MAX_PARALLEL; i++) {
+ 		INIT_WORK(&peer->decrypt_ctx[i].work, ovpn_decrypt_worker);
++		skb_queue_head_init(&peer->decrypt_ctx[i].queue);
+ 		peer->decrypt_ctx[i].peer = peer;
+ 	}
+ 	atomic_set(&peer->next_decrypt_idx, 0);
+@@ -139,6 +140,7 @@
+ 	skb_queue_head_init(&peer->encrypt_queue);
+ 	for (i = 0; i < OVPN_MAX_PARALLEL; i++) {
+ 		INIT_WORK(&peer->encrypt_ctx[i].work, ovpn_encrypt_worker);
++		skb_queue_head_init(&peer->encrypt_ctx[i].queue);
+ 		peer->encrypt_ctx[i].peer = peer;
+ 	}
+ 	atomic_set(&peer->next_encrypt_idx, 0);
+@@ -396,15 +398,26 @@
+ 	for (i = 0; i < OVPN_MAX_PARALLEL; i++)
+ 		cancel_work_sync(&peer->decrypt_ctx[i].work);
+ 
+-	/* Free any remaining skbs in the decrypt queue */
++	/* Free any remaining skbs in the shared decrypt queue */
+ 	while ((skb = skb_dequeue(&peer->decrypt_queue)))
+ 		kfree_skb(skb);
+ 
++	/* Free any remaining skbs in the per-worker decrypt queues */
++	for (i = 0; i < OVPN_MAX_PARALLEL; i++) {
++		while ((skb = skb_dequeue(&peer->decrypt_ctx[i].queue)))
++			kfree_skb(skb);
++	}
++
+ 	/* Wait for any in-flight encrypt workers to complete */
+-	for (i = 0; i < OVPN_MAX_PARALLEL; i++)
++	for (i = 0; i < OVPN_MAX_PARALLEL; i++) {
+ 		cancel_work_sync(&peer->encrypt_ctx[i].work);
+ 
+-	/* Free any remaining skbs in the encrypt queue */
++		/* Free any remaining skbs in per-worker encrypt queues */
++		while ((skb = skb_dequeue(&peer->encrypt_ctx[i].queue)))
++			kfree_skb(skb);
++	}
++
++	/* Free any remaining skbs in the shared encrypt queue */
+ 	while ((skb = skb_dequeue(&peer->encrypt_queue)))
+ 		kfree_skb(skb);
+ 
+--- a/drivers/net/ovpn/peer.h	2026-05-20 14:21:46.371672617 +0800
++++ b/drivers/net/ovpn/peer.h	2026-05-20 14:20:58.466105468 +0800
+@@ -20,11 +20,13 @@
+ 
+ struct ovpn_encrypt_ctx {
+ 	struct work_struct work;
++	struct sk_buff_head queue;
+ 	struct ovpn_peer *peer;
+ };
+ 
+ struct ovpn_decrypt_ctx {
+ 	struct work_struct work;
++	struct sk_buff_head queue;
+ 	struct ovpn_peer *peer;
+ };
+ 
+--- a/drivers/net/ovpn/tcp.c	2026-05-20 14:21:46.373479355 +0800
++++ b/drivers/net/ovpn/tcp.c	2026-05-20 14:20:58.467858820 +0800
+@@ -82,8 +82,21 @@
+ 					   const int pkt_len, const int pkt_off)
+ {
+ 	struct sk_buff *ovpn_skb;
++	unsigned int pkt_end;
+ 	int err;
+ 
++	pkt_end = (unsigned int)pkt_off + (unsigned int)pkt_len;
++	if (likely(!skb_is_nonlinear(orig_skb) && !skb_cloned(orig_skb) &&
++		   !skb_shared(orig_skb) && pkt_off >= 0 && pkt_len >= 0 &&
++		   pkt_end == orig_skb->len)) {
++		err = pskb_trim(orig_skb, pkt_end);
++		if (unlikely(err))
++			goto err;
++
++		__skb_pull(orig_skb, pkt_off);
++		return orig_skb;
++	}
++
+ 	/* create a new skb with only the content of the current packet */
+ 	ovpn_skb = netdev_alloc_skb(peer->ovpn->dev, pkt_len);
+ 	if (unlikely(!ovpn_skb))

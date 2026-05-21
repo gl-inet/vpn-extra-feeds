@@ -12,7 +12,8 @@ PKG_NAME:=ovpn-backports
 PKG_VERSION:=main-7.1.0-rc1-2026050800
 PKG_RELEASE:=1
 
-PKG_SOURCE:=ovpn-net-next/$(PKG_VERSION).tar.gz
+PKG_SOURCE:=ovpn-backports-ovpn-net-next-$(PKG_VERSION).tar.gz
+PKG_SOURCE_URL_FILE:=ovpn-net-next/$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL=https://github.com/OpenVPN/ovpn-backports/archive/refs/tags/
 PKG_HASH:=b89d610924fedc1a4c0f3d0e928f2b9dc3f54927f0257154d034ee7d9335266c
 PKG_BUILD_DIR:=$(KERNEL_BUILD_DIR)/ovpn-backports-ovpn-net-next-$(PKG_VERSION)
