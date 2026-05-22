@@ -27,6 +27,7 @@ MEDIATEK_MT798X_TARGETS := $(CONFIG_TARGET_mediatek_mt7981) \
                            $(CONFIG_TARGET_mediatek_mt7986) \
                            $(CONFIG_TARGET_mediatek_mt7987) \
                            $(CONFIG_TARGET_mediatek_mt7988) \
+                           $(CONFIG_TARGET_ramips_mt7621) \
                            $(CONFIG_TARGET_mediatek_filogic)
 ifneq ($(filter y,$(MEDIATEK_MT798X_TARGETS)),)
   AWG_EXTRA_MAKE_FLAGS:=CONFIG_GL_FORCE_OUT_CRYPTO=n CONFIG_GL_FORCE_NOT_OUT_CRYPTO=y
