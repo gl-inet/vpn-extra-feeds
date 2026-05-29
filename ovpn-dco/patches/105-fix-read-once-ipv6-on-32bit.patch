@@ -1,0 +1,36 @@
+Index: ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/bind.h
+===================================================================
+--- ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800.orig/drivers/net/ovpn/bind.h
++++ ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/bind.h
+@@ -95,6 +95,18 @@ static inline bool ovpn_bind_skb_src_match(const struct ovpn_bind *bind,
+ 	return true;
+ }
+ 
++/* READ_ONCE() cannot access 16-byte in6_addr on 32-bit arches */
++static inline struct in6_addr ovpn_bind_read_local_ipv6(const struct ovpn_bind *bind)
++{
++	struct in6_addr addr;
++
++	addr.s6_addr32[0] = READ_ONCE(bind->local.ipv6.s6_addr32[0]);
++	addr.s6_addr32[1] = READ_ONCE(bind->local.ipv6.s6_addr32[1]);
++	addr.s6_addr32[2] = READ_ONCE(bind->local.ipv6.s6_addr32[2]);
++	addr.s6_addr32[3] = READ_ONCE(bind->local.ipv6.s6_addr32[3]);
++	return addr;
++}
++
+ struct ovpn_bind *ovpn_bind_from_sockaddr(const struct sockaddr_storage *sa);
+ void ovpn_bind_reset(struct ovpn_peer *peer, struct ovpn_bind *bind);
+ 
+Index: ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/io.c
+===================================================================
+--- ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800.orig/drivers/net/ovpn/io.c
++++ ovpn-backports-ovpn-net-next-main-7.1.0-rc1-2026050800/drivers/net/ovpn/io.c
+@@ -73,7 +73,7 @@ static bool ovpn_udp_endpoint_update_needed(struct ovpn_peer *peer,
+ 		return unlikely(READ_ONCE(bind->local.ipv4.s_addr) !=
+ 				ip_hdr(skb)->daddr);
+ 	case htons(ETH_P_IPV6):
+-		local6 = READ_ONCE(bind->local.ipv6);
++		local6 = ovpn_bind_read_local_ipv6(bind);
+ 		return unlikely(!ipv6_addr_equal(&local6,
+ 						 &ipv6_hdr(skb)->daddr));
+ 	default:
