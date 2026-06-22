@@ -16,6 +16,7 @@ include $(CURDIR)/build-oot.mk
 # Cannot be split across lines: Make's backslash-newline inserts a space,
 # which would break OpenWrt's '||' dependency expression parser.
 MT798X_DEP := +TARGET_mediatek_mt7981||TARGET_mediatek_mt7986||TARGET_mediatek_mt7987||TARGET_mediatek_mt7988||TARGET_mediatek_filogic||TARGET_ramips_mt7621
+QUECTEL_RG650V_DEP := +TARGET_sdx75
 
 define KernelPackage/amneziawg
   SECTION:=kernel
@@ -29,7 +30,9 @@ define KernelPackage/amneziawg
 		+kmod-udptunnel4 \
 		+kmod-udptunnel6 \
 		$(MT798X_DEP):kmod-crypto-lib-chacha20poly1305 \
-		$(MT798X_DEP):kmod-crypto-lib-curve25519
+		$(MT798X_DEP):kmod-crypto-lib-curve25519 \
+		$(QUECTEL_RG650V_DEP):kmod-crypto-lib-chacha20poly1305 \
+		$(QUECTEL_RG650V_DEP):kmod-crypto-lib-curve25519
 endef
 
 define Build/Compile
