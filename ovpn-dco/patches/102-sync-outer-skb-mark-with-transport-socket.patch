@@ -1,0 +1,17 @@
+Index: ovpn-dco-0.2.20241216/drivers/net/ovpn-dco/udp.c
+===================================================================
+--- ovpn-dco-0.2.20241216.orig/drivers/net/ovpn-dco/udp.c
++++ ovpn-dco-0.2.20241216/drivers/net/ovpn-dco/udp.c
+@@ -292,6 +292,12 @@ void ovpn_udp_send_skb(struct ovpn_struc
+ 		goto out;
+ 	}
+ 
++	/* The skb may still carry the inner packet mark. Keep the outer
++	 * packet mark consistent with the transport socket mark used for
++	 * the route lookup, as done by the in-tree ovpn driver.
++	 */
++	skb->mark = READ_ONCE(sock->sk->sk_mark);
++
+ 	rcu_read_lock();
+ 	/* get binding */
+ 	bind = rcu_dereference(peer->bind);
