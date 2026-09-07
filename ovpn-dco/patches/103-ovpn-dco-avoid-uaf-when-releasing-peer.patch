@@ -1,0 +1,32 @@
+From f74c59a7e2c8b63958f556df74a585d54e2ac660 Mon Sep 17 00:00:00 2001
+From: Antonio Quartulli <antonio@openvpn.net>
+Date: Thu, 14 May 2026 11:56:21 +0200
+Subject: [PATCH] ovpn-dco: avoid UAF when releasing peer
+
+ovpn_peer_release() schedules a RCU callback which actually frees the peer
+object. Notify userspace before dropping the final peer reference so the peer
+is never accessed after release.
+
+Upstream-Status: Backport [f74c59a7e2c8b63958f556df74a585d54e2ac660]
+Signed-off-by: Antonio Quartulli <antonio@openvpn.net>
+---
+ drivers/net/ovpn-dco/peer.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/ovpn-dco/peer.c b/drivers/net/ovpn-dco/peer.c
+index 4a5d41e..167fa62 100644
+--- a/drivers/net/ovpn-dco/peer.c
++++ b/drivers/net/ovpn-dco/peer.c
+@@ -237,8 +237,8 @@ static void ovpn_peer_delete_work(struct work_struct *work)
+ {
+ 	struct ovpn_peer *peer = container_of(work, struct ovpn_peer,
+ 					      delete_work);
+-	ovpn_peer_release(peer);
+ 	ovpn_netlink_notify_del_peer(peer);
++	ovpn_peer_release(peer);
+ }
+ 
+ /* Use with kref_put calls, when releasing refcount
+-- 
+2.34.1
+

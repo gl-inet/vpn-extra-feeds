@@ -1,0 +1,23 @@
+From: songze <songze.cai@gl-inet.com>
+Date: Wed, 26 Aug 2026 12:00:00 +0800
+Subject: [PATCH] ovpn-dco: sanitize ptr-ring skb before GRO
+
+ptr_ring ownership requires every submitted object to be a standalone skb.
+Clear skb list linkage before handing a decrypted packet to the networking
+core.  Fraglist GRO/GSO feature policy is handled globally by net/core/dev.c,
+so keep this DCO patch limited to the independent list-corruption safeguard.
+
+--- a/drivers/net/ovpn-dco/ovpn.c
++++ b/drivers/net/ovpn-dco/ovpn.c
+@@ -122,6 +122,9 @@ static void tun_netdev_write(struct ovpn_peer *peer, struct sk_buff *skb)
+ 	/* we are in softirq context - hence no locking nor disable preemption needed */
+ 	dev_sw_netstats_rx_add(peer->ovpn->dev, skb->len);
+ 
++	/* ptr_ring entries must be standalone before entering GRO. */
++	skb_mark_not_on_list(skb);
++
+ 	/* cause packet to be "received" by tun interface */
+ 	napi_gro_receive(&peer->napi, skb);
+ }
+-- 
+2.43.0

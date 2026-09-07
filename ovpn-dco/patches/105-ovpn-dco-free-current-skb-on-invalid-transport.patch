@@ -1,0 +1,25 @@
+From: songze <songze.cai@gl-inet.com>
+Date: Fri, 21 Aug 2026 12:00:00 +0800
+Subject: [PATCH] ovpn-dco: free current skb on invalid transport
+
+The successful-encryption path walks a list of GSO segments and detaches each
+segment before handing it to the configured transport. In the defensive
+default branch, consume the current segment rather than the original list
+head. Reusing the list-head pointer can release the same skb more than once
+if an invalid transport is observed while processing a multi-segment packet.
+
+Normal UDP and TCP transports are unchanged.
+
+--- a/drivers/net/ovpn-dco/ovpn.c
++++ b/drivers/net/ovpn-dco/ovpn.c
+@@ -364,7 +364,7 @@ void ovpn_encrypt_work(struct work_struc
+ 					break;
+ 				default:
+ 					/* no transport configured yet */
+-					consume_skb(skb);
++					consume_skb(curr);
+ 					break;
+ 				}
+ 			}
+-- 
+2.43.0
