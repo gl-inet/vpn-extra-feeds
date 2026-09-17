@@ -17,6 +17,8 @@ include $(CURDIR)/build-oot.mk
 # which would break OpenWrt's '||' dependency expression parser.
 MT798X_DEP := +TARGET_mediatek_mt7981||TARGET_mediatek_mt7986||TARGET_mediatek_mt7987||TARGET_mediatek_mt7988||TARGET_mediatek_filogic||TARGET_ramips_mt7621
 QUECTEL_RG650V_DEP := +TARGET_sdx75
+QUECTEL_RG228QD_DEP := +TARGET_qmb415
+CRYPTO_DEP := +$(MT798X_DEP)||$(QUECTEL_RG650V_DEP)||$(QUECTEL_RG228QD_DEP)
 
 define KernelPackage/amneziawg
   SECTION:=kernel
@@ -29,10 +31,8 @@ define KernelPackage/amneziawg
   DEPENDS:= \
 		+kmod-udptunnel4 \
 		+kmod-udptunnel6 \
-		$(MT798X_DEP):kmod-crypto-lib-chacha20poly1305 \
-		$(MT798X_DEP):kmod-crypto-lib-curve25519 \
-		$(QUECTEL_RG650V_DEP):kmod-crypto-lib-chacha20poly1305 \
-		$(QUECTEL_RG650V_DEP):kmod-crypto-lib-curve25519
+		$(CRYPTO_DEP):kmod-crypto-lib-chacha20poly1305 \
+		$(CRYPTO_DEP):kmod-crypto-lib-curve25519
 endef
 
 define Build/Compile
