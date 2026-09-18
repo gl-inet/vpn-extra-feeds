@@ -43,10 +43,6 @@ ifneq ($(filter y,$(MEDIATEK_MT798X_TARGETS) $(QUECTEL_RG650V_TARGETS) $(QUECTEL
   AWG_EXTRA_CFLAGS:=-DGL_NOT_COMPAT_OLD_IP_TUNNEL_IF -DGL_FORCE_NOT_COMPAT_SIMD -DGL_FORCE_NOT_USE_ZINC_CRYPTO
 endif
 
-ifeq ($(CONFIG_TARGET_ipq53xx),y)
-  AWG_EXTRA_CFLAGS+=-DGL_NOT_COMPAT_OLD_IP_TUNNEL_IF -DGL_NOT_COMPAT_DST_CACHE_RESET_NOW
-endif
-
 define Build/Prepare
 	$(call Build/Prepare/Default)
 	@echo "[amneziawg-OOT] Applying compat patches"
