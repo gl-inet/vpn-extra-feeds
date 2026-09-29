@@ -1,0 +1,14 @@
+diff --git a/src/compat/compat.h b/src/compat/compat.h
+index d696815..f33cbac 100644
+--- a/src/compat/compat.h
++++ b/src/compat/compat.h
+@@ -1148,7 +1148,8 @@ struct dst_cache_pcpu {
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0) && \
+     !(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 15, 7) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)) && \
+     !(LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 84) && LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)) && \
+-    !defined(ISRHEL9)
++    !defined(ISRHEL9) && \
++    !defined(GL_NOT_COMPAT_DST_CACHE_RESET_NOW)
+ static inline void dst_cache_reset_now(struct dst_cache *dst_cache)
+ {
+ 	int i;
