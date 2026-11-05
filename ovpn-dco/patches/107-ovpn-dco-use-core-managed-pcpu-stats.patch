@@ -1,0 +1,51 @@
+From: songze <songze.cai@gl-inet.com>
+Subject: [PATCH] ovpn-dco: use core-managed per-CPU stats on newer kernels
+
+The UDP tunnel transmit helpers require a valid pcpu_stat_type on newer
+kernels. Leaving it as NONE triggers iptunnel_xmit_stats warnings when
+the DCO interface sends IPv4 UDP traffic.
+
+Use the networking core's TSTATS allocation and release on Linux 6.8 and
+newer. Keep the existing manual allocation and release on older kernels.
+The type selection and ownership changes must stay paired to avoid
+allocating the stats twice or freeing them twice.
+
+This is a local compatibility backport, not an upstream ovpn-dco commit.
+
+--- a/drivers/net/ovpn-dco/main.c
++++ b/drivers/net/ovpn-dco/main.c
+@@ -41,7 +41,9 @@ static void ovpn_struct_free(struct net_device *net)
+ 	struct ovpn_struct *ovpn = netdev_priv(net);
+ 
+ 	security_tun_dev_free_security(ovpn->security);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
+ 	free_percpu(net->tstats);
++#endif
+ 	flush_workqueue(ovpn->crypto_wq);
+ 	flush_workqueue(ovpn->events_wq);
+ 	destroy_workqueue(ovpn->crypto_wq);
+@@ -134,6 +136,10 @@ static void ovpn_setup(struct net_device *dev)
+ 	dev->ethtool_ops = &ovpn_ethtool_ops;
+ 	dev->needs_free_netdev = true;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
++	dev->pcpu_stat_type = NETDEV_PCPU_STAT_TSTATS;
++#endif
++
+ 	dev->netdev_ops = &ovpn_netdev_ops;
+ 
+ 	dev->priv_destructor = ovpn_struct_free;
+--- a/drivers/net/ovpn-dco/ovpn.c
++++ b/drivers/net/ovpn-dco/ovpn.c
+@@ -78,9 +78,11 @@ int ovpn_struct_init(struct net_device *dev)
+ 	if (!ovpn->events_wq)
+ 		return -ENOMEM;
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 8, 0)
+ 	dev->tstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
+ 	if (!dev->tstats)
+ 		return -ENOMEM;
++#endif
+ 
+ 	err = security_tun_dev_alloc_security(&ovpn->security);
+ 	if (err < 0)
