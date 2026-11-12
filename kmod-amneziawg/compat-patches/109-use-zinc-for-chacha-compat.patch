@@ -1,0 +1,61 @@
+Use bundled Zinc for the ChaCha state API when Zinc crypto is selected.
+Old QSDK kernels do not provide chacha_init/chacha20_crypt, but AWG 3.1
+header protection needs both interfaces. Preserve the full counter/nonce IV.
+
+--- a/src/compat/compat.h
++++ b/src/compat/compat.h
+@@ -1433,20 +1433,40 @@
+ 
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 16, 0)
+ #include <crypto/chacha.h>
++#if defined(GL_FORCE_USE_ZINC_CRYPTO) && (GL_FORCE_USE_ZINC_CRYPTO == 1)
++#include <zinc/chacha20.h>
++#endif
+ #define CHACHA_KEY_WORDS	8
+ #ifndef CHACHA_STATE_WORDS
+ #define CHACHA_STATE_WORDS	(CHACHA_BLOCK_SIZE / sizeof(u32))
+ #endif
+ 
+ struct chacha_state {
++#if defined(GL_FORCE_USE_ZINC_CRYPTO) && (GL_FORCE_USE_ZINC_CRYPTO == 1)
++	struct chacha20_ctx zinc;
++#else
+ 	u32 x[CHACHA_STATE_WORDS];
++#endif
+ };
+ 
+ static inline void __compat_chacha_init(struct chacha_state *state,
+ 					const u32 *key,
+ 					const u8 *iv)
+ {
++#if defined(GL_FORCE_USE_ZINC_CRYPTO) && (GL_FORCE_USE_ZINC_CRYPTO == 1)
++	state->zinc.constant[0] = CHACHA20_CONSTANT_EXPA;
++	state->zinc.constant[1] = CHACHA20_CONSTANT_ND_3;
++	state->zinc.constant[2] = CHACHA20_CONSTANT_2_BY;
++	state->zinc.constant[3] = CHACHA20_CONSTANT_TE_K;
++	memcpy(state->zinc.key, key, sizeof(state->zinc.key));
++	/* The IV contains a 32-bit counter followed by a 96-bit nonce. */
++	state->zinc.counter[0] = get_unaligned_le32(iv);
++	state->zinc.counter[1] = get_unaligned_le32(iv + 4);
++	state->zinc.counter[2] = get_unaligned_le32(iv + 8);
++	state->zinc.counter[3] = get_unaligned_le32(iv + 12);
++#else
+ 	(chacha_init)(state->x, key, iv);
++#endif
+ }
+ #define chacha_init(state, key, iv) __compat_chacha_init((state), (key), (iv))
+ 
+@@ -1454,7 +1474,13 @@
+ 					       u8 *dst, const u8 *src,
+ 					       unsigned int bytes)
+ {
++#if defined(GL_FORCE_USE_ZINC_CRYPTO) && (GL_FORCE_USE_ZINC_CRYPTO == 1)
++	/* Do not acquire nested SIMD state for header protection. */
++	simd_context_t simd_context = HAVE_NO_SIMD;
++	chacha20(&state->zinc, dst, src, bytes, &simd_context);
++#else
+ 	(chacha20_crypt)(state->x, dst, src, bytes);
++#endif
+ }
+ #define chacha20_crypt(s, d, src, b) __compat_chacha20_crypt((s),(d),(src),(b))
+ 
